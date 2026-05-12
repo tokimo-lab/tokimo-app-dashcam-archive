@@ -1,0 +1,21 @@
+# Tokimo app manifest（供主 server 读取，注册 / spawn / 资源代理 / launchpad 展示）
+[app]
+id          = "dashcam-archive"
+display     = "录像归并"
+version     = "0.1.0"
+description = "行车记录仪 / 监控视频按时间分组合并与转码"
+
+[runtime]
+lifecycle    = "resident"
+binary       = "tokimo-app-dashcam-archive"
+ui_dist      = "ui/dist"
+
+[ui]
+entry        = "assets/index.js"
+window_type  = "dashcam-archive"
+category     = "app"
+icon         = "Video"
+image        = "icon.png"
+color        = "#8b5cf6"
+width        = 1100
+height       = 720

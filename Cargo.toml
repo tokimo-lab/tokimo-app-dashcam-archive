@@ -1,0 +1,30 @@
+[package]
+name        = "tokimo-app-dashcam-archive"
+version     = "0.1.0"
+edition     = "2024"
+rust-version = "1.94.0"
+license     = "MIT OR Apache-2.0"
+description = "Dashcam archive Tokimo app scaffold."
+repository  = "https://github.com/tokimo-lab/tokimo-app-dashcam-archive"
+
+[workspace]
+
+[dependencies]
+tokimo-bus-client   = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340" }
+tokimo-bus-protocol = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340", features = ["axum"] }
+tokimo-bus-cli      = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340" }
+
+clap              = { version = "4", features = ["derive", "env"] }
+tokio             = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tracing           = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json        = "1"
+sea-orm           = { version = "2.0.0-rc.37", default-features = false, features = ["sqlx-postgres", "runtime-tokio-rustls"] }
+rust-embed        = { version = "8", features = ["debug-embed"] }
+anyhow            = "1"
+axum              = { version = "0.8", features = ["json"] }
+
+[profile.release]
+lto       = "thin"
+opt-level = 3
+strip     = "symbols"

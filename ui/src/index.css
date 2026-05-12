@@ -1,0 +1,6 @@
+/* All cascade / layer / variant / theme-token wiring (and scanning of
+ * @tokimo/ui's own components) is handled by the bundle entry. */
+@import "@tokimo/ui/bundle.css";
+
+/* Scan our own app source. */
+@source "./**/*.{ts,tsx}";
