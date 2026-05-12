@@ -5,5 +5,6 @@ export const zhCN: Record<string, string> = {
 
 export const enUS: Record<string, string> = {
   title: "Dashcam Archive",
-  subtitle: "Group, merge, and transcode dashcam / surveillance footage by time",
+  subtitle:
+    "Group, merge, and transcode dashcam / surveillance footage by time",
 };

@@ -1,5 +1,5 @@
 {
-  "name": "@tokimo/app-dashcam-archive",
+  "name": "@tokimo-app/dashcam-archive-ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
