@@ -7,8 +7,6 @@ license     = "MIT OR Apache-2.0"
 description = "Dashcam archive Tokimo app scaffold."
 repository  = "https://github.com/tokimo-lab/tokimo-app-dashcam-archive"
 
-[workspace]
-
 [dependencies]
 tokimo-bus-client   = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340" }
 tokimo-bus-protocol = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340", features = ["axum"] }
