@@ -1,16 +1,22 @@
-//! dashcam-archive app — embedded axum + UDS Tokimo app scaffold.
+//! dashcam-archive app — embedded axum + UDS Tokimo app.
 
 mod app_server;
+mod assets;
 mod cli;
+mod core;
 mod db;
 mod handlers;
+mod orchestrator;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use clap::Parser;
 use tokimo_bus_cli::TokimoAuthArgs;
 use tokimo_bus_client::{BusClient, ClientConfig};
-use tracing::{error, info};
+use tokimo_bus_protocol::CallerCtx;
+use tracing::{error, info, warn};
+
+use crate::{core::ffmpeg::FfmpegPaths, orchestrator::Orchestrator};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -51,20 +57,33 @@ async fn run_server() -> anyhow::Result<()> {
 
     let db = db::init_pool().await?;
     db::init_schema(&db).await?;
-    info!("dashcam-archive: db scaffold ready");
+    let client_slot = Arc::new(OnceLock::new());
+    let ffmpeg_paths = Arc::new(tokio::sync::RwLock::new(FfmpegPaths::from_env()));
+    let workers = std::env::var("DASHCAM_ARCHIVE_PARALLEL_SOURCES").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1);
+    let orchestrator = Orchestrator::new(db.clone(), Arc::clone(&ffmpeg_paths), workers);
+    let ctx = Arc::new(handlers::AppCtx {
+        db: db.clone(),
+        client: Arc::clone(&client_slot),
+        ffmpeg_paths: Arc::clone(&ffmpeg_paths),
+        orchestrator,
+    });
 
-    let ctx = Arc::new(handlers::AppCtx);
     let app_socket = app_server::spawn("dashcam-archive", Arc::clone(&ctx))
-        .await
         .map_err(|error| anyhow::anyhow!("app_server spawn: {error}"))?;
 
-    let client = BusClient::builder(cfg)
-        .service("dashcam-archive", env!("CARGO_PKG_VERSION"))
-        .data_plane(app_socket)
-        .build()
-        .await
-        .map_err(|error| anyhow::anyhow!("bus build: {error}"))?;
-
+    let client = Arc::new(
+        BusClient::builder(cfg)
+            .service("dashcam-archive", env!("CARGO_PKG_VERSION"))
+            .data_plane(app_socket)
+            .build()
+            .await
+            .map_err(|error| anyhow::anyhow!("bus build: {error}"))?,
+    );
+    if client_slot.set(Arc::clone(&client)).is_err() {
+        warn!("dashcam-archive: BusClient slot already initialized");
+    }
+    probe_ffmpeg_paths(&client, &ffmpeg_paths).await;
+    ctx.orchestrator.start_supervisors().await?;
     info!("dashcam-archive: registered with broker");
 
     let shutdown = {
@@ -81,4 +100,23 @@ async fn run_server() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn probe_ffmpeg_paths(client: &BusClient, paths: &tokio::sync::RwLock<FfmpegPaths>) {
+    let caller = CallerCtx {
+        user_id: None,
+        request_id: uuid::Uuid::new_v4().to_string(),
+        workspace: None,
+    };
+    let payload = serde_json::to_vec(&serde_json::json!({}));
+    let Ok(payload) = payload else {
+        return;
+    };
+    match client.invoke("media_tools", "binary_paths", payload, caller).await {
+        Ok(bytes) => match serde_json::from_slice::<FfmpegPaths>(&bytes) {
+            Ok(found) => *paths.write().await = found.with_env_fallbacks(),
+            Err(error) => warn!(%error, "dashcam-archive: decode media_tools paths failed"),
+        },
+        Err(error) => warn!(%error, "dashcam-archive: media_tools binary_paths unavailable; using env fallbacks"),
+    }
 }

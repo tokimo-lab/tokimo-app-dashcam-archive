@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    routing::get,
+    routing::{get, post},
 };
 use tokimo_bus_protocol::{BusListener, DataPlaneSocket};
 use tracing::{error, info};
 
-use crate::{handlers, handlers::AppCtx};
+use crate::{assets, handlers, handlers::AppCtx};
 
-pub async fn spawn(service: &str, ctx: Arc<AppCtx>) -> anyhow::Result<DataPlaneSocket> {
+pub fn spawn(service: &str, ctx: Arc<AppCtx>) -> anyhow::Result<DataPlaneSocket> {
     let (listener, socket) = BusListener::bind_for_app(service)?;
     info!(?socket, "dashcam-archive: app server listening");
 
@@ -27,5 +27,21 @@ pub async fn spawn(service: &str, ctx: Arc<AppCtx>) -> anyhow::Result<DataPlaneS
 }
 
 fn build_router(ctx: Arc<AppCtx>) -> Router {
-    Router::new().route("/health", get(handlers::health)).with_state(ctx)
+    Router::new()
+        .route("/health", get(handlers::health))
+        .route("/encoders", get(handlers::encoders))
+        .route("/sources", get(handlers::list_sources).post(handlers::create_source))
+        .route(
+            "/sources/{id}",
+            get(handlers::get_source)
+                .patch(handlers::update_source)
+                .delete(handlers::delete_source),
+        )
+        .route("/sources/{id}/run", post(handlers::run_source))
+        .route("/sources/{id}/runs", get(handlers::list_source_runs))
+        .route("/runs/{id}", get(handlers::get_run))
+        .route("/runs/{id}/cancel", post(handlers::cancel_run))
+        .route("/runs/{id}/stream", get(handlers::stream_run))
+        .route("/assets/{*path}", get(assets::serve))
+        .with_state(ctx)
 }

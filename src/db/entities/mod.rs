@@ -1,1 +1,5 @@
-// Entity modules will be added when dashcam-archive introduces persisted tables.
+pub mod merge_groups;
+pub mod merge_runs;
+pub mod scan_cache;
+pub mod sources;
+pub mod warnings;
