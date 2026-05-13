@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import type { EncoderDto, SourceDto, SourceReq } from "./api";
 import { createSource, deleteSource, getEncoders, updateSource } from "./api";
 import { DirPicker } from "./dir-picker";
+import type { StorageBinding } from "./storage-binding";
 
 interface Props {
   source: SourceDto | "create";
@@ -28,13 +29,79 @@ interface Props {
   t: (key: string) => string;
 }
 
+type SourceFormState = Omit<
+  SourceReq,
+  | "src_path"
+  | "dst_path"
+  | "src_source_id"
+  | "src_source_type"
+  | "dst_source_id"
+  | "dst_source_type"
+> & {
+  src: StorageBinding | null;
+  dst: StorageBinding | null;
+  src_path?: string;
+  dst_path?: string;
+};
+
+function sourceBinding(
+  source: SourceDto,
+  prefix: "src" | "dst",
+): StorageBinding | null {
+  const path = prefix === "src" ? source.src_path : source.dst_path;
+  const sourceId =
+    prefix === "src" ? source.src_source_id : source.dst_source_id;
+  const sourceType =
+    prefix === "src" ? source.src_source_type : source.dst_source_type;
+  const sourceName =
+    prefix === "src" ? source.src_source_name : source.dst_source_name;
+
+  if (!path || !sourceId || !sourceType) return null;
+
+  return {
+    sourceId,
+    sourceType,
+    sourceName: sourceName || sourceType,
+    sourceConfig: null,
+    path,
+  };
+}
+
+function buildSourceReq(
+  data: SourceFormState,
+  encoderParams: Record<string, unknown>,
+): SourceReq {
+  return {
+    name: data.name,
+    src_path: data.src?.path ?? data.src_path ?? "",
+    dst_path: data.dst?.path ?? data.dst_path ?? "",
+    src_source_id: data.src?.sourceId ?? null,
+    src_source_type: data.src?.sourceType ?? null,
+    dst_source_id: data.dst?.sourceId ?? null,
+    dst_source_type: data.dst?.sourceType ?? null,
+    encoder: data.encoder,
+    encoder_params: encoderParams,
+    max_gap_seconds: data.max_gap_seconds,
+    max_group_duration_seconds: data.max_group_duration_seconds,
+    monthly_subdirs: data.monthly_subdirs,
+    allow_combined_input: data.allow_combined_input,
+    no_broken_split: data.no_broken_split,
+    trigger_mode: data.trigger_mode,
+    cron_expr: data.cron_expr,
+    watcher_debounce_secs: data.watcher_debounce_secs,
+    enabled: data.enabled,
+  };
+}
+
 export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
   const isCreate = source === "create";
   const toast = useToast();
 
-  const initialData: SourceReq = isCreate
+  const initialData: SourceFormState = isCreate
     ? {
         name: "",
+        src: null,
+        dst: null,
         src_path: "",
         dst_path: "",
         encoder: "auto",
@@ -51,6 +118,8 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
       }
     : {
         name: source.name,
+        src: sourceBinding(source, "src"),
+        dst: sourceBinding(source, "dst"),
         src_path: source.src_path ?? "",
         dst_path: source.dst_path ?? "",
         encoder: source.encoder,
@@ -66,7 +135,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         enabled: source.enabled,
       };
 
-  const [data, setData] = useState<SourceReq>(initialData);
+  const [data, setData] = useState<SourceFormState>(initialData);
   const [encoders, setEncoders] = useState<EncoderDto[]>([]);
   const [paramsJson, setParamsJson] = useState(
     JSON.stringify(initialData.encoder_params, null, 2),
@@ -91,7 +160,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         setSaving(false);
         return;
       }
-      const payload = { ...data, encoder_params: params };
+      const payload = buildSourceReq(data, params);
       if (isCreate) {
         await createSource(payload);
       } else {
@@ -155,16 +224,22 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
           </SettingRow>
           <SettingRow label={t("fieldSrcPath")}>
             <DirPicker
-              value={data.src_path ?? ""}
-              onChange={(path) => setData({ ...data, src_path: path })}
+              value={data.src}
+              onChange={(binding) =>
+                setData({ ...data, src: binding, src_path: binding?.path ?? "" })
+              }
+              legacyPath={data.src_path}
               shell={shell}
               t={t}
             />
           </SettingRow>
           <SettingRow label={t("fieldDstPath")}>
             <DirPicker
-              value={data.dst_path ?? ""}
-              onChange={(path) => setData({ ...data, dst_path: path })}
+              value={data.dst}
+              onChange={(binding) =>
+                setData({ ...data, dst: binding, dst_path: binding?.path ?? "" })
+              }
+              legacyPath={data.dst_path}
               shell={shell}
               t={t}
             />

@@ -18,6 +18,10 @@ export interface SourceReq {
   name: string;
   src_path?: string;
   dst_path?: string;
+  src_source_id?: string | null;
+  src_source_type?: string | null;
+  dst_source_id?: string | null;
+  dst_source_type?: string | null;
   encoder?: string;
   encoder_params?: Record<string, unknown>;
   max_gap_seconds?: number;
@@ -39,6 +43,12 @@ export interface SourceDto {
   name: string;
   src_path: string | null;
   dst_path: string | null;
+  src_source_id?: string | null;
+  src_source_type?: string | null;
+  src_source_name?: string | null;
+  dst_source_id?: string | null;
+  dst_source_type?: string | null;
+  dst_source_name?: string | null;
   encoder: string;
   encoder_params: Record<string, unknown>;
   max_gap_seconds: number;

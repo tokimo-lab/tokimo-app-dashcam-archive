@@ -86,10 +86,14 @@ export const zhCN: Record<string, string> = {
   btnSave: "保存",
   btnDelete: "删除",
   btnBrowse: "浏览…",
+  btnClear: "清除",
   confirmDelete: "确认删除此源配置？",
 
-  // Dir picker
-  dirPickerTitle: "选择目录",
+  // Storage binding picker
+  storageBindingPickerTitle: "选择存储位置",
+  storageBindingPlaceholder: "请选择存储位置",
+  remoteStorageSource: "远程",
+  legacyStorageBinding: "（旧数据，请重新选择）",
   confirmDirPick: "选择此目录",
   parentDir: "上级目录",
   loading: "加载中…",
@@ -244,10 +248,14 @@ export const enUS: Record<string, string> = {
   btnSave: "Save",
   btnDelete: "Delete",
   btnBrowse: "Browse…",
+  btnClear: "Clear",
   confirmDelete: "Confirm delete this source?",
 
-  // Dir picker
-  dirPickerTitle: "Select Directory",
+  // Storage binding picker
+  storageBindingPickerTitle: "Select Storage Location",
+  storageBindingPlaceholder: "Select a storage location",
+  remoteStorageSource: "Remote",
+  legacyStorageBinding: "(legacy data, please reselect)",
   confirmDirPick: "Select This Directory",
   parentDir: "Parent Directory",
   loading: "Loading…",

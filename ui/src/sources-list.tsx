@@ -15,6 +15,37 @@ interface Props {
   t: (key: string) => string;
 }
 
+interface SourceLocationDisplay {
+  text: string;
+  legacy: boolean;
+  remoteType: string | null;
+}
+
+function sourceLocationDisplay(
+  source: SourceDto,
+  prefix: "src" | "dst",
+  t: (key: string) => string,
+): SourceLocationDisplay {
+  const path = prefix === "src" ? source.src_path : source.dst_path;
+  const sourceId =
+    prefix === "src" ? source.src_source_id : source.dst_source_id;
+  const sourceType =
+    prefix === "src" ? source.src_source_type : source.dst_source_type;
+  const sourceName =
+    prefix === "src" ? source.src_source_name : source.dst_source_name;
+
+  if (!path) return { text: t("emptyValue"), legacy: false, remoteType: null };
+  if (!sourceId || !sourceType) {
+    return { text: path, legacy: true, remoteType: null };
+  }
+
+  return {
+    text: `${sourceName || sourceType} :: ${path}`,
+    legacy: false,
+    remoteType: sourceType !== "local" ? sourceType : null,
+  };
+}
+
 export function SourcesList({
   selected,
   onSelect,
@@ -94,62 +125,79 @@ export function SourcesList({
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {sources.map((source) => (
-              <div
-                key={source.id}
-                className={`
-                  rounded-md border transition-colors
-                  ${
-                    selected === source.id
-                      ? "bg-accent border-accent text-fg-on-accent"
-                      : "bg-surface-elevated border-border-base hover:bg-surface-glass"
-                  }
-                `}
-              >
-                <div className="flex items-start justify-between gap-2 p-3">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(source.id)}
-                    className="min-w-0 flex-1 cursor-pointer text-left"
-                  >
-                    <div className="text-fg-primary mb-1 flex items-center gap-2 text-sm font-medium">
-                      <span className="truncate">{source.name}</span>
-                      {selected === source.id && <ChevronRight size={14} />}
-                    </div>
-                    <div className="text-fg-secondary mb-2 text-xs">
-                      <span className="truncate block">
-                        {source.src_path || t("emptyValue")}{" "}
-                        {t("separatorFlow")}{" "}
-                        {source.dst_path || t("emptyValue")}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Tag
-                        color={
-                          source.trigger_mode === "manual_only"
-                            ? "default"
-                            : "success"
-                        }
-                      >
-                        {t(
-                          source.trigger_mode === "manual_only"
-                            ? "triggerManualOnly"
-                            : source.trigger_mode === "cron"
-                              ? "triggerCron"
-                              : source.trigger_mode === "watcher"
-                                ? "triggerWatcher"
-                                : "triggerCronWatcher",
+            {sources.map((source) => {
+              const src = sourceLocationDisplay(source, "src", t);
+              const dst = sourceLocationDisplay(source, "dst", t);
+              return (
+                <div
+                  key={source.id}
+                  className={`
+                    rounded-md border transition-colors
+                    ${
+                      selected === source.id
+                        ? "bg-accent border-accent text-fg-on-accent"
+                        : "bg-surface-elevated border-border-base hover:bg-surface-glass"
+                    }
+                  `}
+                >
+                  <div className="flex items-start justify-between gap-2 p-3">
+                    <button
+                      type="button"
+                      onClick={() => onSelect(source.id)}
+                      className="min-w-0 flex-1 cursor-pointer text-left"
+                    >
+                      <div className="text-fg-primary mb-1 flex items-center gap-2 text-sm font-medium">
+                        <span className="truncate">{source.name}</span>
+                        {selected === source.id && <ChevronRight size={14} />}
+                      </div>
+                      <div className="text-fg-secondary mb-2 text-xs">
+                        <span className="truncate block">
+                          {src.text} {t("separatorFlow")} {dst.text}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(src.legacy || dst.legacy) && (
+                          <Tag color="warning" size="small">
+                            {t("legacyStorageBinding")}
+                          </Tag>
                         )}
-                      </Tag>
-                    </div>
-                  </button>
-                  <Switch
-                    checked={source.enabled}
-                    onChange={(checked) => handleToggle(source.id, checked)}
-                  />
+                        {src.remoteType && (
+                          <Tag color="blue" size="small">
+                            {src.remoteType}
+                          </Tag>
+                        )}
+                        {dst.remoteType && dst.remoteType !== src.remoteType && (
+                          <Tag color="blue" size="small">
+                            {dst.remoteType}
+                          </Tag>
+                        )}
+                        <Tag
+                          color={
+                            source.trigger_mode === "manual_only"
+                              ? "default"
+                              : "success"
+                          }
+                        >
+                          {t(
+                            source.trigger_mode === "manual_only"
+                              ? "triggerManualOnly"
+                              : source.trigger_mode === "cron"
+                                ? "triggerCron"
+                                : source.trigger_mode === "watcher"
+                                  ? "triggerWatcher"
+                                  : "triggerCronWatcher",
+                          )}
+                        </Tag>
+                      </div>
+                    </button>
+                    <Switch
+                      checked={source.enabled}
+                      onChange={(checked) => handleToggle(source.id, checked)}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
