@@ -13,7 +13,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokimo_bus_auth::TokimoUser;
@@ -109,8 +109,12 @@ pub async fn encoders(State(ctx): State<Arc<AppCtx>>) -> Json<Vec<encoder::Encod
 
 #[derive(Debug, Deserialize)]
 pub struct SourceReq {
-    pub name: String,
+    pub name: Option<String>,
+    pub src_source_id: Uuid,
+    pub src_source_type: String,
     pub src_path: Option<String>,
+    pub dst_source_id: Uuid,
+    pub dst_source_type: String,
     pub dst_path: Option<String>,
     pub input_path: Option<String>,
     pub output_path: Option<String>,
@@ -131,7 +135,11 @@ pub struct SourceReq {
 #[derive(Debug, Deserialize)]
 pub struct SourcePatchReq {
     pub name: Option<String>,
+    pub src_source_id: Option<Uuid>,
+    pub src_source_type: Option<String>,
     pub src_path: Option<String>,
+    pub dst_source_id: Option<Uuid>,
+    pub dst_source_type: Option<String>,
     pub dst_path: Option<String>,
     pub input_path: Option<String>,
     pub output_path: Option<String>,
@@ -154,7 +162,11 @@ pub struct SourceDto {
     pub id: Uuid,
     pub user_id: Uuid,
     pub name: String,
+    pub src_source_id: Uuid,
+    pub src_source_type: String,
     pub src_path: String,
+    pub dst_source_id: Uuid,
+    pub dst_source_type: String,
     pub dst_path: String,
     pub encoder: String,
     pub encoder_params: Value,
@@ -176,7 +188,11 @@ impl From<sources::Model> for SourceDto {
             id: model.id,
             user_id: model.user_id,
             name: model.name,
+            src_source_id: model.src_source_id,
+            src_source_type: model.src_source_type,
             src_path: model.src_path,
+            dst_source_id: model.dst_source_id,
+            dst_source_type: model.dst_source_type,
             dst_path: model.dst_path,
             encoder: model.encoder,
             encoder_params: model.encoder_params,
@@ -307,7 +323,11 @@ pub async fn create_source(
     Json(req): Json<SourceReq>,
 ) -> Result<Json<SourceDto>, AppError> {
     Ok(Json(SourceDto::from(
-        SourcesRepo::create(&ctx.db, source_input(req, parse_user_id(&user.user_id)?)?).await?,
+        SourcesRepo::create(
+            &ctx.db,
+            source_input(&ctx.db, req, parse_user_id(&user.user_id)?).await?,
+        )
+        .await?,
     )))
 }
 pub async fn get_source(
@@ -330,9 +350,14 @@ pub async fn update_source(
     let existing = SourcesRepo::get(&ctx.db, id, user_id)
         .await?
         .ok_or_else(|| AppError::not_found("source not found"))?;
-    let source = SourcesRepo::update(&ctx.db, id, user_id, patch_source_input(req, existing, user_id)?)
-        .await?
-        .ok_or_else(|| AppError::not_found("source not found"))?;
+    let source = SourcesRepo::update(
+        &ctx.db,
+        id,
+        user_id,
+        patch_source_input(&ctx.db, req, existing, user_id).await?,
+    )
+    .await?
+    .ok_or_else(|| AppError::not_found("source not found"))?;
     Ok(Json(SourceDto::from(source)))
 }
 #[derive(Serialize)]
@@ -443,21 +468,33 @@ pub async fn stream_run(
 fn parse_user_id(user_id: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(user_id).map_err(|error| AppError::bad_request(format!("invalid user id: {error}")))
 }
-fn source_input(req: SourceReq, user_id: Uuid) -> Result<SourceInput, AppError> {
-    let src_path = req
+async fn source_input(db: &DatabaseConnection, req: SourceReq, user_id: Uuid) -> Result<SourceInput, AppError> {
+    let src_source_type = req.src_source_type.trim().to_string();
+    let dst_source_type = req.dst_source_type.trim().to_string();
+    validate_vfs_source(db, req.src_source_id, &src_source_type, "src_source_id").await?;
+    validate_vfs_source(db, req.dst_source_id, &dst_source_type, "dst_source_id").await?;
+
+    let raw_src = req
         .src_path
         .or(req.input_path)
-        .ok_or_else(|| AppError::bad_request("src_path is required"))?;
-    let dst_path = req
+        .ok_or_else(|| AppError::bad_request("src_path (or input_path) is required"))?;
+    let src_path = normalize_vfs_path(&raw_src, "src_path")?;
+    let raw_dst = req
         .dst_path
         .or(req.output_path)
-        .ok_or_else(|| AppError::bad_request("dst_path is required"))?;
+        .ok_or_else(|| AppError::bad_request("dst_path (or output_path) is required"))?;
+    let dst_path = normalize_vfs_path(&raw_dst, "dst_path")?;
     let allow_combined = req.allow_combined_input.unwrap_or(false);
-    validate_source_paths(&req.name, &src_path, &dst_path, allow_combined)?;
+    validate_source_paths(req.name.as_deref(), &src_path, &dst_path, allow_combined)?;
+    let name = source_name(req.name, &src_path, &dst_path)?;
 
     Ok(SourceInput {
         user_id,
-        name: req.name,
+        name,
+        src_source_id: req.src_source_id,
+        src_source_type,
+        dst_source_id: req.dst_source_id,
+        dst_source_type,
         src_path,
         dst_path,
         encoder: req.encoder.unwrap_or_else(|| "auto".to_string()),
@@ -474,16 +511,56 @@ fn source_input(req: SourceReq, user_id: Uuid) -> Result<SourceInput, AppError> 
     })
 }
 
-fn patch_source_input(req: SourcePatchReq, existing: sources::Model, user_id: Uuid) -> Result<SourceInput, AppError> {
-    let name = req.name.unwrap_or(existing.name);
-    let src_path = req.src_path.or(req.input_path).unwrap_or(existing.src_path);
-    let dst_path = req.dst_path.or(req.output_path).unwrap_or(existing.dst_path);
+async fn patch_source_input(
+    db: &DatabaseConnection,
+    req: SourcePatchReq,
+    existing: sources::Model,
+    user_id: Uuid,
+) -> Result<SourceInput, AppError> {
+    let src_source_id = req.src_source_id.unwrap_or(existing.src_source_id);
+    let src_source_type = req
+        .src_source_type
+        .unwrap_or(existing.src_source_type)
+        .trim()
+        .to_string();
+    let dst_source_id = req.dst_source_id.unwrap_or(existing.dst_source_id);
+    let dst_source_type = req
+        .dst_source_type
+        .unwrap_or(existing.dst_source_type)
+        .trim()
+        .to_string();
+    validate_vfs_source(db, src_source_id, &src_source_type, "src_source_id").await?;
+    validate_vfs_source(db, dst_source_id, &dst_source_type, "dst_source_id").await?;
+
+    let src_path = req
+        .src_path
+        .or(req.input_path)
+        .map(|path| normalize_vfs_path(&path, "src_path"))
+        .transpose()?
+        .unwrap_or(existing.src_path);
+    let dst_path = req
+        .dst_path
+        .or(req.output_path)
+        .map(|path| normalize_vfs_path(&path, "dst_path"))
+        .transpose()?
+        .unwrap_or(existing.dst_path);
     let allow_combined_input = req.allow_combined_input.unwrap_or(existing.allow_combined_input);
-    validate_source_paths(&name, &src_path, &dst_path, allow_combined_input)?;
+    validate_source_paths(
+        req.name.as_deref().or(Some(existing.name.as_str())),
+        &src_path,
+        &dst_path,
+        allow_combined_input,
+    )?;
+    let name = req.name.unwrap_or(existing.name);
+    let name = source_name(Some(name), &src_path, &dst_path)?;
 
     Ok(SourceInput {
         user_id,
         name,
+        src_source_id,
+        src_source_type,
+        dst_source_id,
+        dst_source_type,
         src_path,
         dst_path,
         encoder: req.encoder.unwrap_or(existing.encoder),
@@ -502,13 +579,72 @@ fn patch_source_input(req: SourcePatchReq, existing: sources::Model, user_id: Uu
     })
 }
 
+async fn validate_vfs_source(
+    db: &DatabaseConnection,
+    source_id: Uuid,
+    source_type: &str,
+    field: &str,
+) -> Result<(), AppError> {
+    if source_type.trim().is_empty() {
+        return Err(AppError::bad_request(format!("{field} type is empty")));
+    }
+    let stmt = Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT type FROM public.vfs WHERE id = $1",
+        [source_id.into()],
+    );
+    let row = db
+        .query_one_raw(stmt)
+        .await
+        .map_err(|error| AppError::internal(format!("vfs lookup failed for {field}: {error}")))?;
+    let Some(row) = row else {
+        return Err(AppError::bad_request(format!(
+            "{field} does not reference an existing VFS source"
+        )));
+    };
+    let actual: String = row
+        .try_get("", "type")
+        .map_err(|error| AppError::internal(format!("vfs lookup failed for {field}: {error}")))?;
+    if actual != source_type {
+        return Err(AppError::bad_request(format!(
+            "{field} type mismatch: expected {source_type}, got {actual}"
+        )));
+    }
+    Ok(())
+}
+
+fn normalize_vfs_path(raw: &str, field: &str) -> Result<String, AppError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::bad_request(format!("{field} is empty")));
+    }
+    if trimmed.contains("vfs://") {
+        return Err(AppError::bad_request(format!(
+            "{field} must not contain 'vfs://'"
+        )));
+    }
+    if trimmed.starts_with('/') {
+        Ok(trimmed.to_string())
+    } else {
+        Ok(format!("/{trimmed}"))
+    }
+}
+
+fn source_name(name: Option<String>, src_path: &str, dst_path: &str) -> Result<String, AppError> {
+    let final_name = name.unwrap_or_else(|| format!("{src_path} -> {dst_path}"));
+    if final_name.trim().is_empty() {
+        return Err(AppError::bad_request("name is empty"));
+    }
+    Ok(final_name)
+}
+
 fn validate_source_paths(
-    name: &str,
+    name: Option<&str>,
     src_path: &str,
     dst_path: &str,
     allow_combined_input: bool,
 ) -> Result<(), AppError> {
-    if name.trim().is_empty() {
+    if name.is_some_and(|value| value.trim().is_empty()) {
         return Err(AppError::bad_request("name is empty"));
     }
     if src_path.trim().is_empty() {
@@ -517,35 +653,16 @@ fn validate_source_paths(
     if dst_path.trim().is_empty() {
         return Err(AppError::bad_request("dst_path is empty"));
     }
-
-    if src_path.starts_with("vfs://") {
-        return Err(AppError::bad_request("vfs:// paths are not supported"));
+    if !src_path.starts_with('/') {
+        return Err(AppError::bad_request("src_path must be an absolute VFS path"));
     }
-    if dst_path.starts_with("vfs://") {
-        return Err(AppError::bad_request("vfs:// paths are not supported"));
+    if !dst_path.starts_with('/') {
+        return Err(AppError::bad_request("dst_path must be an absolute VFS path"));
     }
-
-    let src = std::path::Path::new(src_path);
-    let dst = std::path::Path::new(dst_path);
-    if !src.is_absolute() {
-        return Err(AppError::bad_request("src_path must be an absolute path"));
-    }
-    if !dst.is_absolute() {
-        return Err(AppError::bad_request("dst_path must be an absolute path"));
-    }
-
-    if !src.exists() {
-        return Err(AppError::bad_request("src_path does not exist"));
-    }
-    if !src.is_dir() {
-        return Err(AppError::bad_request("src_path must be a directory"));
-    }
-
     if !allow_combined_input && src_path.contains("_combined") {
         return Err(AppError::bad_request(
             "src_path contains '_combined' but allow_combined_input is false",
         ));
     }
-
     Ok(())
 }
