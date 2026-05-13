@@ -146,7 +146,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto p-4 pb-20">
+      <div className="flex-1 overflow-y-auto p-4 pb-32">
         <SettingGroup title={t("sectionBasic")}>
           <SettingRow label={t("fieldName")}>
             <Input
@@ -190,7 +190,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
               min={0}
             />
           </SettingRow>
-          <SettingRow label={t("fieldMonthlySubdirs")}>
+          <SettingRow label={t("fieldMonthlySubdirs")} orientation="vertical">
             <SegmentedControl
               value={data.monthly_subdirs ?? "auto"}
               onChange={(val) =>
