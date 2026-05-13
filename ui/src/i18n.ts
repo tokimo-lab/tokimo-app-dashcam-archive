@@ -83,7 +83,19 @@ export const zhCN: Record<string, string> = {
 
   btnSave: "保存",
   btnDelete: "删除",
+  btnCancel: "取消",
+  btnBrowse: "浏览…",
   confirmDelete: "确认删除此源配置？",
+
+  // Dir picker
+  dirPickerTitle: "选择目录",
+  confirmDirPick: "选择此目录",
+  parentDir: "上级目录",
+  loading: "加载中…",
+  noDirectories: "无子目录",
+
+  // Danger zone
+  labelDangerZone: "危险操作",
   saveSuccess: "保存成功",
   deleteSuccess: "删除成功",
 
@@ -228,7 +240,19 @@ export const enUS: Record<string, string> = {
 
   btnSave: "Save",
   btnDelete: "Delete",
+  btnCancel: "Cancel",
+  btnBrowse: "Browse…",
   confirmDelete: "Confirm delete this source?",
+
+  // Dir picker
+  dirPickerTitle: "Select Directory",
+  confirmDirPick: "Select This Directory",
+  parentDir: "Parent Directory",
+  loading: "Loading…",
+  noDirectories: "No subdirectories",
+
+  // Danger zone
+  labelDangerZone: "Danger Zone",
   saveSuccess: "Saved successfully",
   deleteSuccess: "Deleted successfully",
 
