@@ -83,7 +83,6 @@ export const zhCN: Record<string, string> = {
 
   btnSave: "保存",
   btnDelete: "删除",
-  btnCancel: "取消",
   btnBrowse: "浏览…",
   confirmDelete: "确认删除此源配置？",
 
@@ -240,7 +239,6 @@ export const enUS: Record<string, string> = {
 
   btnSave: "Save",
   btnDelete: "Delete",
-  btnCancel: "Cancel",
   btnBrowse: "Browse…",
   confirmDelete: "Confirm delete this source?",
 
