@@ -14,6 +14,7 @@ import {
   Switch,
   useToast,
 } from "@tokimo/ui";
+import type { ShellApi } from "@tokimo/sdk";
 import { useEffect, useState } from "react";
 import type { EncoderDto, SourceDto, SourceReq } from "./api";
 import { createSource, deleteSource, getEncoders, updateSource } from "./api";
@@ -23,10 +24,11 @@ interface Props {
   source: SourceDto | "create";
   onSaved: () => void;
   onDeleted: () => void;
+  shell: ShellApi;
   t: (key: string) => string;
 }
 
-export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
+export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
   const isCreate = source === "create";
   const toast = useToast();
 
@@ -155,6 +157,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
             <DirPicker
               value={data.src_path ?? ""}
               onChange={(path) => setData({ ...data, src_path: path })}
+              shell={shell}
               t={t}
             />
           </SettingRow>
@@ -162,6 +165,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
             <DirPicker
               value={data.dst_path ?? ""}
               onChange={(path) => setData({ ...data, dst_path: path })}
+              shell={shell}
               t={t}
             />
           </SettingRow>

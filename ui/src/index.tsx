@@ -150,6 +150,7 @@ function DashcamArchiveApp({ ctx }: { ctx: AppRuntimeCtx }) {
                       source={selectedData}
                       onSaved={handleSaved}
                       onDeleted={handleDeleted}
+                      shell={ctx.shell}
                       t={t}
                     />
                   )}

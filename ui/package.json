@@ -8,7 +8,7 @@
     "dev": "vite build --watch"
   },
   "dependencies": {
-    "@tokimo/sdk": "github:tokimo-lab/tokimo-package-sdk#2632b1b675b012735d54f85fee00b71b7f27e0c4",
+    "@tokimo/sdk": "github:tokimo-lab/tokimo-package-sdk#b6deb2a4dc9fd3d26db372e2b46acf981d35b437",
     "@tokimo/ui": "github:tokimo-lab/tokimo-ui#67925b8147d21f7d5ac3db50a3601400b144b89d",
     "lucide-react": "^1.11.0",
     "react": "^19.2.5",
