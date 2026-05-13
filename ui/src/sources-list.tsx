@@ -166,11 +166,12 @@ export function SourcesList({
                             {src.remoteType}
                           </Tag>
                         )}
-                        {dst.remoteType && dst.remoteType !== src.remoteType && (
-                          <Tag color="blue" size="small">
-                            {dst.remoteType}
-                          </Tag>
-                        )}
+                        {dst.remoteType &&
+                          dst.remoteType !== src.remoteType && (
+                            <Tag color="blue" size="small">
+                              {dst.remoteType}
+                            </Tag>
+                          )}
                         <Tag
                           color={
                             source.trigger_mode === "manual_only"

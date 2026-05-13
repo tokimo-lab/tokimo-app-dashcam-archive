@@ -226,7 +226,11 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
             <DirPicker
               value={data.src}
               onChange={(binding) =>
-                setData({ ...data, src: binding, src_path: binding?.path ?? "" })
+                setData({
+                  ...data,
+                  src: binding,
+                  src_path: binding?.path ?? "",
+                })
               }
               legacyPath={data.src_path}
               shell={shell}
@@ -237,7 +241,11 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
             <DirPicker
               value={data.dst}
               onChange={(binding) =>
-                setData({ ...data, dst: binding, dst_path: binding?.path ?? "" })
+                setData({
+                  ...data,
+                  dst: binding,
+                  dst_path: binding?.path ?? "",
+                })
               }
               legacyPath={data.dst_path}
               shell={shell}

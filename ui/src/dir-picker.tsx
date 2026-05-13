@@ -59,7 +59,9 @@ export function DirPicker({
             <span className="min-w-0 truncate">{legacyPath}</span>
           </span>
         ) : (
-          <span className="text-fg-muted">{t("storageBindingPlaceholder")}</span>
+          <span className="text-fg-muted">
+            {t("storageBindingPlaceholder")}
+          </span>
         )}
       </button>
       <Button
