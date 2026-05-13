@@ -1,11 +1,12 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc};
 
-use serde::Deserialize;
-use tokio::{process::Command, sync::Semaphore};
+use tokimo_package_ffmpeg::{DirectInput, probe_direct};
+use tokimo_vfs::FileInfo;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::{
-    core::{ffmpeg::FfmpegPaths, naming::is_video_file},
+    core::naming::is_video_file,
     db::repos::scan_cache_repo::{CacheUpsert, ScanCacheRepo},
 };
 
@@ -16,35 +17,11 @@ pub struct FileFingerprint {
     pub ctime_ns: Option<i64>,
 }
 
-pub fn stat_fingerprint(path: &Path) -> anyhow::Result<FileFingerprint> {
-    let meta = std::fs::metadata(path)?;
-    let size = i64::try_from(meta.len()).ok();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(FileFingerprint {
-            size,
-            mtime_ns: Some(
-                meta.mtime_nsec()
-                    .saturating_add(meta.mtime().saturating_mul(1_000_000_000)),
-            ),
-            ctime_ns: Some(
-                meta.ctime_nsec()
-                    .saturating_add(meta.ctime().saturating_mul(1_000_000_000)),
-            ),
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
-        Ok(FileFingerprint {
-            size,
-            mtime_ns: modified.and_then(|d| i64::try_from(d.as_nanos()).ok()),
-            ctime_ns: None,
-        })
+pub fn vfs_fingerprint(info: &FileInfo) -> FileFingerprint {
+    FileFingerprint {
+        size: i64::try_from(info.size).ok(),
+        mtime_ns: info.modified.and_then(|value| value.timestamp_nanos_opt()),
+        ctime_ns: None,
     }
 }
 
@@ -59,115 +36,58 @@ pub struct ProbeResult {
     pub height: Option<i32>,
 }
 
-#[derive(Debug, Deserialize)]
-struct FfprobeJson {
-    streams: Option<Vec<FfprobeStream>>,
-    format: Option<FfprobeFormat>,
-}
-#[derive(Debug, Deserialize)]
-struct FfprobeStream {
-    codec_name: Option<String>,
-    width: Option<i32>,
-    height: Option<i32>,
-}
-#[derive(Debug, Deserialize)]
-struct FfprobeFormat {
-    duration: Option<String>,
-    bit_rate: Option<String>,
-    size: Option<String>,
-}
-
-pub async fn ffprobe(paths: &FfmpegPaths, path: &Path) -> ProbeResult {
-    let Some(ffprobe) = paths.ffprobe.as_ref() else {
-        return ProbeResult {
-            broken: true,
-            ..ProbeResult::default()
-        };
-    };
-    let mut command = Command::new(ffprobe);
-    command.args([
-        "-v",
-        "error",
-        "-print_format",
-        "json",
-        "-show_entries",
-        "stream=codec_name,width,height",
-        "-show_entries",
-        "format=duration,bit_rate,size",
-        "-select_streams",
-        "v:0",
-    ]);
-    command.arg(path);
-    paths.apply_library_env(&mut command);
-    let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(60), command.output()).await else {
-        return ProbeResult {
-            broken: true,
-            ..ProbeResult::default()
-        };
-    };
-    if !output.status.success() {
-        return ProbeResult {
-            broken: true,
-            ..ProbeResult::default()
-        };
-    }
-    let Ok(data) = serde_json::from_slice::<FfprobeJson>(&output.stdout) else {
-        return ProbeResult {
-            broken: true,
-            ..ProbeResult::default()
-        };
-    };
-    let stream = data.streams.as_ref().and_then(|streams| streams.first());
-    let duration_secs = data
-        .format
-        .as_ref()
-        .and_then(|fmt| fmt.duration.as_deref())
-        .and_then(|raw| raw.parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0);
-    ProbeResult {
-        duration_secs,
-        broken: duration_secs.is_none(),
-        codec: stream.and_then(|s| s.codec_name.clone()),
-        format_bps: data
-            .format
-            .as_ref()
-            .and_then(|fmt| fmt.bit_rate.as_deref())
-            .and_then(|raw| raw.parse::<i64>().ok()),
-        size_bytes: data
-            .format
-            .as_ref()
-            .and_then(|fmt| fmt.size.as_deref())
-            .and_then(|raw| raw.parse::<i64>().ok()),
-        width: stream.and_then(|s| s.width),
-        height: stream.and_then(|s| s.height),
-    }
-}
-
 #[derive(Clone)]
 pub struct DurationResolver {
     db: sea_orm::DatabaseConnection,
-    paths: Arc<tokio::sync::RwLock<FfmpegPaths>>,
     semaphore: Arc<Semaphore>,
 }
 
 impl DurationResolver {
-    pub fn new(
-        db: sea_orm::DatabaseConnection,
-        paths: Arc<tokio::sync::RwLock<FfmpegPaths>>,
-        concurrency: usize,
-    ) -> Self {
+    pub fn new(db: sea_orm::DatabaseConnection, concurrency: usize) -> Self {
         Self {
             db,
-            paths,
             semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
         }
     }
 
-    pub async fn resolve(&self, source_id: Uuid, path: &Path) -> anyhow::Result<ProbeResult> {
-        let stat = stat_fingerprint(path)?;
-        let abs_path = path.to_string_lossy().to_string();
+    pub async fn resolve_vfs(
+        &self,
+        source_id: Uuid,
+        vfs: &tokimo_vfs::Vfs,
+        info: &FileInfo,
+    ) -> anyhow::Result<ProbeResult> {
+        let stat = vfs_fingerprint(info);
+        let abs_path = info.path.clone();
+        let is_video = is_video_file(Path::new(&info.path));
+        self.resolve_with_fingerprint(
+            source_id,
+            &abs_path,
+            stat,
+            |semaphore| async move {
+                let permit = semaphore.acquire().await?;
+                let probe = probe_via_direct_input(vfs, info).await;
+                drop(permit);
+                Ok(probe)
+            },
+            is_video,
+        )
+        .await
+    }
+
+    async fn resolve_with_fingerprint<F, Fut>(
+        &self,
+        source_id: Uuid,
+        abs_path: &str,
+        stat: FileFingerprint,
+        probe_fn: F,
+        should_probe: bool,
+    ) -> anyhow::Result<ProbeResult>
+    where
+        F: FnOnce(Arc<Semaphore>) -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<ProbeResult>>,
+    {
         if let Some(cached) =
-            ScanCacheRepo::find(&self.db, source_id, &abs_path, stat.size, stat.mtime_ns, stat.ctime_ns).await?
+            ScanCacheRepo::find(&self.db, source_id, abs_path, stat.size, stat.mtime_ns, stat.ctime_ns).await?
         {
             return Ok(ProbeResult {
                 duration_secs: cached.duration_secs,
@@ -179,18 +99,16 @@ impl DurationResolver {
                 height: cached.height,
             });
         }
-        let mut probe = ProbeResult::default();
-        if is_video_file(path) {
-            let permit = self.semaphore.acquire().await?;
-            let paths = self.paths.read().await.clone();
-            probe = ffprobe(&paths, path).await;
-            drop(permit);
-        }
+        let probe = if should_probe {
+            probe_fn(Arc::clone(&self.semaphore)).await?
+        } else {
+            ProbeResult::default()
+        };
         ScanCacheRepo::upsert(
             &self.db,
             CacheUpsert {
                 source_id,
-                abs_path,
+                abs_path: abs_path.to_string(),
                 size: stat.size,
                 mtime_ns: stat.mtime_ns,
                 ctime_ns: stat.ctime_ns,
@@ -206,5 +124,34 @@ impl DurationResolver {
         )
         .await?;
         Ok(probe)
+    }
+}
+
+async fn probe_via_direct_input(vfs: &tokimo_vfs::Vfs, info: &FileInfo) -> ProbeResult {
+    let read_at = vfs.to_read_at(Path::new(&info.path).to_path_buf()).await;
+    let filename_hint = Path::new(&info.path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string());
+    let input = DirectInput::from_read_at(read_at, info.size, filename_hint, Some(2 * 1024 * 1024));
+    match tokio::task::spawn_blocking(move || probe_direct(input)).await {
+        Ok(Ok(media)) => {
+            let stream = media.streams.iter().find(|stream| stream.codec_type == "video");
+            let duration_secs = Some(media.format.duration_secs()).filter(|value| value.is_finite() && *value > 0.0);
+            ProbeResult {
+                duration_secs,
+                broken: duration_secs.is_none(),
+                codec: stream.map(|stream| stream.codec_name.clone()),
+                format_bps: media.format.bit_rate.parse::<i64>().ok(),
+                size_bytes: media.format.size.parse::<i64>().ok(),
+                width: stream.and_then(|stream| stream.video.as_ref()).map(|video| video.width),
+                height: stream
+                    .and_then(|stream| stream.video.as_ref())
+                    .map(|video| video.height),
+            }
+        }
+        _ => ProbeResult {
+            broken: true,
+            ..ProbeResult::default()
+        },
     }
 }

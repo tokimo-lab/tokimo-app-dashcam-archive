@@ -5,3 +5,4 @@ pub mod grouping;
 pub mod naming;
 pub mod pipeline;
 pub mod report;
+pub mod vfs_source;

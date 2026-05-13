@@ -33,7 +33,8 @@ tokio-stream       = { version = "0.1", features = ["sync"] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid               = { version = "1", features = ["v4", "serde"] }
-walkdir            = "2"
+tokimo-vfs = { path = "../../packages/tokimo-package-vfs/packages/fs" }
+tokimo-package-ffmpeg = { path = "../../packages/tokimo-package-ffmpeg" }
 
 [profile.release]
 lto       = "thin"
