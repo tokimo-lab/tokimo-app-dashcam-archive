@@ -1,10 +1,23 @@
 /**
  * Settings form for creating/editing a source.
  */
-import { Button, Input, Select, Switch } from "@tokimo/ui";
-import { useEffect, useId, useState } from "react";
+import {
+  Button,
+  Input,
+  InputNumber,
+  Popconfirm,
+  SegmentedControl,
+  Select,
+  SettingGroup,
+  SettingRow,
+  StickySaveBar,
+  Switch,
+  useToast,
+} from "@tokimo/ui";
+import { useEffect, useState } from "react";
 import type { EncoderDto, SourceDto, SourceReq } from "./api";
 import { createSource, deleteSource, getEncoders, updateSource } from "./api";
+import { DirPicker } from "./dir-picker";
 
 interface Props {
   source: SourceDto | "create";
@@ -15,6 +28,8 @@ interface Props {
 
 export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
   const isCreate = source === "create";
+  const toast = useToast();
+
   const initialData: SourceReq = isCreate
     ? {
         name: "",
@@ -57,21 +72,6 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const formId = useId();
-  const nameId = `${formId}-name`;
-  const srcPathId = `${formId}-src-path`;
-  const dstPathId = `${formId}-dst-path`;
-  const maxGapId = `${formId}-max-gap`;
-  const maxDurationId = `${formId}-max-duration`;
-  const monthlySubdirsId = `${formId}-monthly-subdirs`;
-  const allowCombinedInputId = `${formId}-allow-combined-input`;
-  const noBrokenSplitId = `${formId}-no-broken-split`;
-  const encoderId = `${formId}-encoder`;
-  const encoderParamsId = `${formId}-encoder-params`;
-  const triggerModeId = `${formId}-trigger-mode`;
-  const cronExprId = `${formId}-cron-expr`;
-  const watcherDebounceId = `${formId}-watcher-debounce`;
-  const enabledId = `${formId}-enabled`;
 
   useEffect(() => {
     getEncoders()
@@ -87,7 +87,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
         try {
           params = JSON.parse(paramsJson) as Record<string, unknown>;
         } catch {
-          alert(t("invalidJsonParams"));
+          toast.error(t("invalidJsonParams"));
           setSaving(false);
           return;
         }
@@ -98,10 +98,10 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
       } else {
         await updateSource(source.id, payload);
       }
-      alert(t("saveSuccess"));
+      toast.success(t("saveSuccess"));
       onSaved();
     } catch (err) {
-      alert(
+      toast.error(
         `${t("errorSave")}: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
@@ -110,21 +110,27 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(t("confirmDelete"))) return;
     if (isCreate) return;
     setDeleting(true);
     try {
       await deleteSource(source.id);
-      alert(t("deleteSuccess"));
+      toast.success(t("deleteSuccess"));
       onDeleted();
     } catch (err) {
-      alert(
+      toast.error(
         `${t("errorDelete")}: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       setDeleting(false);
     }
   };
+
+
+  const monthlyOpts = [
+    { value: "auto", label: t("optionAuto") },
+    { value: "on", label: t("optionOn") },
+    { value: "off", label: t("optionOff") },
+  ];
 
   const triggerModeOpts = [
     { value: "manual_only", label: t("triggerManualOnly") },
@@ -133,350 +139,202 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
     { value: "cron+watcher", label: t("triggerCronWatcher") },
   ];
 
-  const monthlyOpts = [
-    { value: "auto", label: t("optionAuto") },
-    { value: "on", label: t("optionOn") },
-    { value: "off", label: t("optionOff") },
-  ];
-
   const showCron =
     data.trigger_mode === "cron" || data.trigger_mode === "cron+watcher";
   const showWatcher =
     data.trigger_mode === "watcher" || data.trigger_mode === "cron+watcher";
 
   return (
-    <div className="space-y-6 p-4">
-      {/* Basic */}
-      <section>
-        <h3 className="text-fg-primary mb-3 text-sm font-semibold">
-          {t("sectionBasic")}
-        </h3>
-        <div className="space-y-3">
-          <div>
-            <label
-              htmlFor={nameId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldName")}
-            </label>
+    <div className="relative flex h-full flex-col">
+      <div className="flex-1 overflow-y-auto p-4 pb-20">
+        <SettingGroup title={t("sectionBasic")}>
+          <SettingRow label={t("fieldName")}>
             <Input
-              id={nameId}
               value={data.name}
               onChange={(e) => setData({ ...data, name: e.target.value })}
               placeholder={t("placeholderName")}
             />
-          </div>
-          <div>
-            <label
-              htmlFor={srcPathId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldSrcPath")}
-            </label>
-            <Input
-              id={srcPathId}
-              value={data.src_path}
-              onChange={(e) => setData({ ...data, src_path: e.target.value })}
-              placeholder={t("placeholderSrcPath")}
+          </SettingRow>
+          <SettingRow label={t("fieldSrcPath")}>
+            <DirPicker
+              value={data.src_path ?? ""}
+              onChange={(path) => setData({ ...data, src_path: path })}
+              t={t}
             />
-          </div>
-          <div>
-            <label
-              htmlFor={dstPathId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldDstPath")}
-            </label>
-            <Input
-              id={dstPathId}
-              value={data.dst_path}
-              onChange={(e) => setData({ ...data, dst_path: e.target.value })}
-              placeholder={t("placeholderDstPath")}
+          </SettingRow>
+          <SettingRow label={t("fieldDstPath")}>
+            <DirPicker
+              value={data.dst_path ?? ""}
+              onChange={(path) => setData({ ...data, dst_path: path })}
+              t={t}
             />
-          </div>
-        </div>
-      </section>
+          </SettingRow>
+        </SettingGroup>
 
-      {/* Grouping */}
-      <section>
-        <h3 className="text-fg-primary mb-3 text-sm font-semibold">
-          {t("sectionGrouping")}
-        </h3>
-        <div className="space-y-3">
-          <div>
-            <label
-              htmlFor={maxGapId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldMaxGap")}
-            </label>
-            <Input
-              id={maxGapId}
-              type="number"
-              value={data.max_gap_seconds}
-              onChange={(e) =>
-                setData({ ...data, max_gap_seconds: Number(e.target.value) })
+        <SettingGroup title={t("sectionGrouping")}>
+          <SettingRow label={t("fieldMaxGap")} desc={t("hintMaxGap")}>
+            <InputNumber
+              value={data.max_gap_seconds ?? 0}
+              onChange={(val) =>
+                setData({ ...data, max_gap_seconds: val ?? 0 })
               }
+              min={0}
             />
-            <p className="text-fg-muted mt-1 text-xs">{t("hintMaxGap")}</p>
-          </div>
-          <div>
-            <label
-              htmlFor={maxDurationId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldMaxDuration")}
-            </label>
-            <Input
-              id={maxDurationId}
-              type="number"
-              value={data.max_group_duration_seconds}
-              onChange={(e) =>
-                setData({
-                  ...data,
-                  max_group_duration_seconds: Number(e.target.value),
-                })
+          </SettingRow>
+          <SettingRow label={t("fieldMaxDuration")}>
+            <InputNumber
+              value={data.max_group_duration_seconds ?? 0}
+              onChange={(val) =>
+                setData({ ...data, max_group_duration_seconds: val ?? 0 })
               }
+              min={0}
             />
-          </div>
-          <fieldset>
-            <legend
-              id={monthlySubdirsId}
-              className="text-fg-secondary mb-1 block text-xs"
-            >
-              {t("fieldMonthlySubdirs")}
-            </legend>
-            <div className="flex gap-2">
-              {monthlyOpts.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() =>
-                    setData({
-                      ...data,
-                      monthly_subdirs: opt.value as "auto" | "on" | "off",
-                    })
-                  }
-                  className={`
-                    flex-1 cursor-pointer rounded border px-3 py-2 text-xs transition-colors
-                    ${
-                      data.monthly_subdirs === opt.value
-                        ? "bg-accent border-accent text-fg-on-accent"
-                        : "bg-surface-elevated border-border-base text-fg-secondary hover:bg-surface-glass"
-                    }
-                  `}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset className="flex items-center justify-between">
-            <legend
-              id={allowCombinedInputId}
-              className="text-fg-secondary text-xs"
-            >
-              {t("fieldAllowCombinedInput")}
-            </legend>
+          </SettingRow>
+          <SettingRow label={t("fieldMonthlySubdirs")}>
+            <SegmentedControl
+              value={data.monthly_subdirs ?? "auto"}
+              onChange={(val) =>
+                setData({ ...data, monthly_subdirs: val as "auto" | "on" | "off" })
+              }
+              options={monthlyOpts}
+            />
+          </SettingRow>
+          <SettingRow label={t("fieldAllowCombinedInput")}>
             <Switch
-              checked={data.allow_combined_input}
+              checked={data.allow_combined_input ?? false}
               onChange={(val) =>
                 setData({ ...data, allow_combined_input: val })
               }
             />
-          </fieldset>
-          <fieldset className="flex items-center justify-between">
-            <legend id={noBrokenSplitId} className="text-fg-secondary text-xs">
-              {t("fieldNoBrokenSplit")}
-            </legend>
+          </SettingRow>
+          <SettingRow label={t("fieldNoBrokenSplit")}>
             <Switch
-              checked={data.no_broken_split}
+              checked={data.no_broken_split ?? false}
               onChange={(val) => setData({ ...data, no_broken_split: val })}
             />
-          </fieldset>
-        </div>
-      </section>
+          </SettingRow>
+        </SettingGroup>
 
-      {/* Encoder */}
-      <section>
-        <h3 className="text-fg-primary mb-3 text-sm font-semibold">
-          {t("sectionEncoder")}
-        </h3>
-        <div className="space-y-3">
-          <div>
-            <fieldset>
-              <legend
-                id={encoderId}
-                className="text-fg-secondary mb-1 block text-xs"
-              >
-                {t("fieldEncoder")}
-              </legend>
-              <Select
-                value={data.encoder}
-                onChange={(val) => setData({ ...data, encoder: val })}
-                options={encoders.map((enc) => ({
-                  value: enc.id,
-                  label: enc.display_name,
-                  description: (
-                    <span className="text-fg-muted text-xs">
-                      {enc.description} •{" "}
-                      <span
-                        className={
-                          enc.available ? "text-fg-success" : "text-fg-danger"
-                        }
-                      >
-                        {t(enc.available ? "available" : "unavailable")}
-                      </span>
+        <SettingGroup title={t("sectionEncoder")}>
+          <SettingRow label={t("fieldEncoder")}>
+            <Select
+              value={data.encoder}
+              onChange={(val) => setData({ ...data, encoder: val })}
+              options={encoders.map((enc) => ({
+                value: enc.id,
+                label: enc.display_name,
+                description: (
+                  <span className="text-fg-muted text-xs">
+                    {enc.description} •{" "}
+                    <span
+                      className={
+                        enc.available ? "text-fg-success" : "text-fg-danger"
+                      }
+                    >
+                      {t(enc.available ? "available" : "unavailable")}
                     </span>
-                  ),
-                  disabled: !enc.available,
-                }))}
-              />
-            </fieldset>
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowParams(!showParams)}
-              className="text-accent mb-2 cursor-pointer text-xs underline"
-            >
-              {t(showParams ? "hideParams" : "showParams")}
-            </button>
+                  </span>
+                ),
+                disabled: !enc.available,
+              }))}
+            />
+          </SettingRow>
+          <SettingRow
+            label={
+              <button
+                type="button"
+                onClick={() => setShowParams(!showParams)}
+                className="text-accent cursor-pointer text-xs underline"
+              >
+                {t(showParams ? "hideParams" : "showParams")}
+              </button>
+            }
+            orientation="vertical"
+          >
             {showParams && (
-              <>
-                <label
-                  htmlFor={encoderParamsId}
-                  className="text-fg-secondary mb-1 block text-xs"
-                >
-                  {t("fieldEncoderParams")}
-                </label>
-                <textarea
-                  id={encoderParamsId}
-                  value={paramsJson}
-                  onChange={(e) => setParamsJson(e.target.value)}
-                  rows={8}
-                  className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
-                />
-              </>
+              <textarea
+                value={paramsJson}
+                onChange={(e) => setParamsJson(e.target.value)}
+                rows={8}
+                className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
+              />
             )}
-          </div>
-        </div>
-      </section>
+          </SettingRow>
+        </SettingGroup>
 
-      {/* Trigger */}
-      <section>
-        <h3 className="text-fg-primary mb-3 text-sm font-semibold">
-          {t("sectionTrigger")}
-        </h3>
-        <div className="space-y-3">
-          <div>
-            <fieldset>
-              <legend
-                id={triggerModeId}
-                className="text-fg-secondary mb-1 block text-xs"
-              >
-                {t("fieldTriggerMode")}
-              </legend>
-              <div className="grid grid-cols-2 gap-2">
-                {triggerModeOpts.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() =>
-                      setData({
-                        ...data,
-                        trigger_mode: opt.value as SourceReq["trigger_mode"],
-                      })
-                    }
-                    className={`
-                    cursor-pointer rounded border px-3 py-2 text-xs transition-colors
-                    ${
-                      data.trigger_mode === opt.value
-                        ? "bg-accent border-accent text-fg-on-accent"
-                        : "bg-surface-elevated border-border-base text-fg-secondary hover:bg-surface-glass"
-                    }
-                  `}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          </div>
+        <SettingGroup title={t("sectionTrigger")}>
+          <SettingRow label={t("fieldTriggerMode")} orientation="vertical">
+            <SegmentedControl
+              value={data.trigger_mode ?? "manual_only"}
+              onChange={(val) =>
+                setData({ ...data, trigger_mode: val as SourceReq["trigger_mode"] })
+              }
+              options={triggerModeOpts}
+              className="w-full"
+            />
+          </SettingRow>
           {showCron && (
-            <div>
-              <label
-                htmlFor={cronExprId}
-                className="text-fg-secondary mb-1 block text-xs"
-              >
-                {t("fieldCronExpr")}
-              </label>
+            <SettingRow label={t("fieldCronExpr")}>
               <Input
-                id={cronExprId}
-                value={data.cron_expr}
+                value={data.cron_expr ?? ""}
                 onChange={(e) =>
                   setData({ ...data, cron_expr: e.target.value })
                 }
                 placeholder={t("placeholderCronExpr")}
               />
-            </div>
+            </SettingRow>
           )}
           {showWatcher && (
-            <div>
-              <label
-                htmlFor={watcherDebounceId}
-                className="text-fg-secondary mb-1 block text-xs"
-              >
-                {t("fieldWatcherDebounce")}
-              </label>
-              <Input
-                id={watcherDebounceId}
-                type="number"
-                value={data.watcher_debounce_secs}
-                onChange={(e) =>
-                  setData({
-                    ...data,
-                    watcher_debounce_secs: Number(e.target.value),
-                  })
+            <SettingRow label={t("fieldWatcherDebounce")}>
+              <InputNumber
+                value={data.watcher_debounce_secs ?? 0}
+                onChange={(val) =>
+                  setData({ ...data, watcher_debounce_secs: val ?? 0 })
                 }
+                min={0}
               />
-            </div>
+            </SettingRow>
           )}
-        </div>
-      </section>
+        </SettingGroup>
 
-      {/* Status */}
-      <section>
-        <h3 className="text-fg-primary mb-3 text-sm font-semibold">
-          {t("sectionStatus")}
-        </h3>
-        <fieldset className="flex items-center justify-between">
-          <legend id={enabledId} className="text-fg-secondary text-xs">
-            {t("fieldEnabled")}
-          </legend>
-          <Switch
-            checked={data.enabled}
-            onChange={(val) => setData({ ...data, enabled: val })}
-          />
-        </fieldset>
-      </section>
-
-      {/* Actions */}
-      <div className="flex gap-3">
-        <Button onClick={handleSave} disabled={saving} className="flex-1">
-          {t("btnSave")}
-        </Button>
-        {!isCreate && (
-          <Button
-            onClick={handleDelete}
-            disabled={deleting}
-            variant="danger"
-            className="flex-1"
-          >
-            {t("btnDelete")}
-          </Button>
-        )}
+        <SettingGroup title={t("sectionStatus")}>
+          <SettingRow label={t("fieldEnabled")}>
+            <Switch
+              checked={data.enabled ?? true}
+              onChange={(val) => setData({ ...data, enabled: val })}
+            />
+          </SettingRow>
+          {!isCreate && (
+            <SettingRow label={t("labelDangerZone")}>
+              <Popconfirm
+                title={t("confirmDelete")}
+                okType="danger"
+                okText={t("btnDelete")}
+                cancelText={t("btnCancel")}
+                onConfirm={handleDelete}
+              >
+                <Button
+                  variant="danger"
+                  disabled={deleting}
+                  loading={deleting}
+                >
+                  {t("btnDelete")}
+                </Button>
+              </Popconfirm>
+            </SettingRow>
+          )}
+        </SettingGroup>
       </div>
+
+      <StickySaveBar
+        dirty={true}
+        loading={saving}
+        onSave={handleSave}
+        onReset={() => {
+          setData(initialData);
+          setParamsJson(JSON.stringify(initialData.encoder_params, null, 2));
+        }}
+      />
     </div>
   );
 }
