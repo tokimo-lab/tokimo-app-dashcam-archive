@@ -241,6 +241,7 @@ impl Pipeline {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit(
         &self,
         run_id: uuid::Uuid,

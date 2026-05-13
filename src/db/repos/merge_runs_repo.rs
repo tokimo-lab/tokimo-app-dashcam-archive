@@ -99,6 +99,7 @@ impl MergeRunsRepo {
         Ok(Some(active.update(db).await?))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_counters<C: ConnectionTrait>(
         db: &C,
         id: Uuid,
