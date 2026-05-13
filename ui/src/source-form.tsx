@@ -258,7 +258,11 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
         </SettingGroup>
 
         <SettingGroup title={t("sectionTrigger")}>
-          <SettingRow label={t("fieldTriggerMode")} orientation="vertical">
+          <SettingRow
+            label={t("fieldTriggerMode")}
+            orientation="vertical"
+            desc={data.trigger_mode === "manual_only" ? t("hintManualOnly") : undefined}
+          >
             <SegmentedControl
               value={data.trigger_mode ?? "manual_only"}
               onChange={(val) =>
