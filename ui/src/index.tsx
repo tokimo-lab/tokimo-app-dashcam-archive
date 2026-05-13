@@ -71,7 +71,7 @@ function DashcamArchiveApp({ ctx }: { ctx: AppRuntimeCtx }) {
   return (
     <ConfigProvider locale={locale}>
       <ToastProvider>
-        <div className="flex h-screen bg-surface-base text-fg-primary">
+        <div className="flex h-full bg-surface-base text-fg-primary">
           {/* Left sidebar */}
           <div className="border-border-base w-80 shrink-0 border-r">
             <SourcesList
