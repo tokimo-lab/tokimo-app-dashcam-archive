@@ -17,11 +17,16 @@ pub async fn init_pool() -> anyhow::Result<DatabaseConnection> {
 pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
     let ddl = [
         format!(r#"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"#),
+        format!(r#"DROP TABLE IF EXISTS {SCHEMA}.sources CASCADE"#),
         format!(
             r#"CREATE TABLE IF NOT EXISTS {SCHEMA}.sources (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id UUID NOT NULL,
                 name TEXT NOT NULL,
+                src_source_id UUID NOT NULL,
+                src_source_type VARCHAR(32) NOT NULL,
+                dst_source_id UUID NOT NULL,
+                dst_source_type VARCHAR(32) NOT NULL,
                 src_path TEXT NOT NULL,
                 dst_path TEXT NOT NULL,
                 encoder TEXT NOT NULL DEFAULT 'auto',

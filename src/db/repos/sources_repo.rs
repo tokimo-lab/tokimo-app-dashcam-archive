@@ -9,6 +9,10 @@ use crate::db::entities::sources::{self, Entity as Sources};
 pub struct SourceInput {
     pub user_id: Uuid,
     pub name: String,
+    pub src_source_id: Uuid,
+    pub src_source_type: String,
+    pub dst_source_id: Uuid,
+    pub dst_source_type: String,
     pub src_path: String,
     pub dst_path: String,
     pub encoder: String,
@@ -57,6 +61,10 @@ impl SourcesRepo {
             id: Set(Uuid::new_v4()),
             user_id: Set(input.user_id),
             name: Set(input.name),
+            src_source_id: Set(input.src_source_id),
+            src_source_type: Set(input.src_source_type),
+            dst_source_id: Set(input.dst_source_id),
+            dst_source_type: Set(input.dst_source_type),
             src_path: Set(input.src_path),
             dst_path: Set(input.dst_path),
             encoder: Set(input.encoder),
@@ -87,6 +95,10 @@ impl SourcesRepo {
         };
         let mut model: sources::ActiveModel = existing.into();
         model.name = Set(input.name);
+        model.src_source_id = Set(input.src_source_id);
+        model.src_source_type = Set(input.src_source_type);
+        model.dst_source_id = Set(input.dst_source_id);
+        model.dst_source_type = Set(input.dst_source_type);
         model.src_path = Set(input.src_path);
         model.dst_path = Set(input.dst_path);
         model.encoder = Set(input.encoder);
