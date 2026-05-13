@@ -60,7 +60,7 @@ export const zhCN: Record<string, string> = {
   fieldNoBrokenSplit: "禁止断裂分割",
   hintMaxGap: "相邻文件间隔超过此值会切分为不同组",
 
-  sectionEncoder: "编码器",
+  sectionEncoder: "编码设置",
   fieldEncoder: "编码器",
   fieldEncoderParams: "编码参数（JSON）",
   available: "可用",
@@ -68,7 +68,7 @@ export const zhCN: Record<string, string> = {
   showParams: "显示参数",
   hideParams: "隐藏参数",
 
-  sectionTrigger: "触发模式",
+  sectionTrigger: "触发设置",
   fieldTriggerMode: "触发方式",
   triggerManualOnly: "仅手动",
   triggerCron: "定时任务",
@@ -217,7 +217,7 @@ export const enUS: Record<string, string> = {
   fieldNoBrokenSplit: "No Broken Split",
   hintMaxGap: "Files separated by more than this will be in different groups",
 
-  sectionEncoder: "Encoder",
+  sectionEncoder: "Encoding",
   fieldEncoder: "Encoder",
   fieldEncoderParams: "Encoder Params (JSON)",
   available: "Available",
@@ -225,7 +225,7 @@ export const enUS: Record<string, string> = {
   showParams: "Show Params",
   hideParams: "Hide Params",
 
-  sectionTrigger: "Trigger",
+  sectionTrigger: "Trigger Settings",
   fieldTriggerMode: "Trigger Mode",
   triggerManualOnly: "Manual Only",
   triggerCron: "Cron",
