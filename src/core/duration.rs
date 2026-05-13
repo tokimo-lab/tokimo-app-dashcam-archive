@@ -24,13 +24,22 @@ pub fn stat_fingerprint(path: &Path) -> anyhow::Result<FileFingerprint> {
         use std::os::unix::fs::MetadataExt;
         Ok(FileFingerprint {
             size,
-            mtime_ns: Some(meta.mtime_nsec().saturating_add(meta.mtime().saturating_mul(1_000_000_000))),
-            ctime_ns: Some(meta.ctime_nsec().saturating_add(meta.ctime().saturating_mul(1_000_000_000))),
+            mtime_ns: Some(
+                meta.mtime_nsec()
+                    .saturating_add(meta.mtime().saturating_mul(1_000_000_000)),
+            ),
+            ctime_ns: Some(
+                meta.ctime_nsec()
+                    .saturating_add(meta.ctime().saturating_mul(1_000_000_000)),
+            ),
         })
     }
     #[cfg(not(unix))]
     {
-        let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
         Ok(FileFingerprint {
             size,
             mtime_ns: modified.and_then(|d| i64::try_from(d.as_nanos()).ok()),
@@ -70,7 +79,10 @@ struct FfprobeFormat {
 
 pub async fn ffprobe(paths: &FfmpegPaths, path: &Path) -> ProbeResult {
     let Some(ffprobe) = paths.ffprobe.as_ref() else {
-        return ProbeResult { broken: true, ..ProbeResult::default() };
+        return ProbeResult {
+            broken: true,
+            ..ProbeResult::default()
+        };
     };
     let mut command = Command::new(ffprobe);
     command.args([
@@ -88,13 +100,22 @@ pub async fn ffprobe(paths: &FfmpegPaths, path: &Path) -> ProbeResult {
     command.arg(path);
     paths.apply_library_env(&mut command);
     let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(60), command.output()).await else {
-        return ProbeResult { broken: true, ..ProbeResult::default() };
+        return ProbeResult {
+            broken: true,
+            ..ProbeResult::default()
+        };
     };
     if !output.status.success() {
-        return ProbeResult { broken: true, ..ProbeResult::default() };
+        return ProbeResult {
+            broken: true,
+            ..ProbeResult::default()
+        };
     }
     let Ok(data) = serde_json::from_slice::<FfprobeJson>(&output.stdout) else {
-        return ProbeResult { broken: true, ..ProbeResult::default() };
+        return ProbeResult {
+            broken: true,
+            ..ProbeResult::default()
+        };
     };
     let stream = data.streams.as_ref().and_then(|streams| streams.first());
     let duration_secs = data
@@ -130,14 +151,24 @@ pub struct DurationResolver {
 }
 
 impl DurationResolver {
-    pub fn new(db: sea_orm::DatabaseConnection, paths: Arc<tokio::sync::RwLock<FfmpegPaths>>, concurrency: usize) -> Self {
-        Self { db, paths, semaphore: Arc::new(Semaphore::new(concurrency.max(1))) }
+    pub fn new(
+        db: sea_orm::DatabaseConnection,
+        paths: Arc<tokio::sync::RwLock<FfmpegPaths>>,
+        concurrency: usize,
+    ) -> Self {
+        Self {
+            db,
+            paths,
+            semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
+        }
     }
 
     pub async fn resolve(&self, source_id: Uuid, path: &Path) -> anyhow::Result<ProbeResult> {
         let stat = stat_fingerprint(path)?;
         let abs_path = path.to_string_lossy().to_string();
-        if let Some(cached) = ScanCacheRepo::find(&self.db, source_id, &abs_path, stat.size, stat.mtime_ns, stat.ctime_ns).await? {
+        if let Some(cached) =
+            ScanCacheRepo::find(&self.db, source_id, &abs_path, stat.size, stat.mtime_ns, stat.ctime_ns).await?
+        {
             return Ok(ProbeResult {
                 duration_secs: cached.duration_secs,
                 broken: cached.broken,

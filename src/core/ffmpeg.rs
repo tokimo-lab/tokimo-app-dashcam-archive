@@ -23,7 +23,9 @@ pub struct FfmpegPaths {
 }
 
 impl FfmpegPaths {
-    pub fn is_available(&self) -> bool { self.ffmpeg.is_some() && self.ffprobe.is_some() }
+    pub fn is_available(&self) -> bool {
+        self.ffmpeg.is_some() && self.ffprobe.is_some()
+    }
 
     pub fn from_env() -> Self {
         Self {
@@ -51,13 +53,21 @@ impl FfmpegPaths {
             #[cfg(unix)]
             {
                 let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
-                let value = if existing.is_empty() { lib.clone() } else { format!("{lib}:{existing}") };
+                let value = if existing.is_empty() {
+                    lib.clone()
+                } else {
+                    format!("{lib}:{existing}")
+                };
                 command.env("LD_LIBRARY_PATH", value);
             }
             #[cfg(windows)]
             {
                 let existing = std::env::var("PATH").unwrap_or_default();
-                let value = if existing.is_empty() { lib.clone() } else { format!("{lib};{existing}") };
+                let value = if existing.is_empty() {
+                    lib.clone()
+                } else {
+                    format!("{lib};{existing}")
+                };
                 command.env("PATH", value);
             }
         }
@@ -91,31 +101,61 @@ impl WarningTracker {
         let patterns = [
             ("corrupt_frame", "corrupt decoded frame|corrupt input|Corrupted frame"),
             ("concealing", "concealing\\s+\\d+|error concealment"),
-            ("missing_ref", "reference picture missing|Missing reference picture|reference frame missing"),
-            ("missing_picture", "missing picture in access unit|No start code|missing picture"),
-            ("non_existing_pps", "non-existing PPS|non-existing SPS|sps_id .* out of range|pps_id .* out of range"),
+            (
+                "missing_ref",
+                "reference picture missing|Missing reference picture|reference frame missing",
+            ),
+            (
+                "missing_picture",
+                "missing picture in access unit|No start code|missing picture",
+            ),
+            (
+                "non_existing_pps",
+                "non-existing PPS|non-existing SPS|sps_id .* out of range|pps_id .* out of range",
+            ),
             ("application_invalid", "Application provided invalid"),
             ("slice_header", "decode_slice_header error|slice header damaged"),
-            ("mb_decode", "\\bmb decoding\\b|MB decoding error|cbp too large|ac-tex damaged|AC tex damaged|dc-tex damaged"),
+            (
+                "mb_decode",
+                "\\bmb decoding\\b|MB decoding error|cbp too large|ac-tex damaged|AC tex damaged|dc-tex damaged",
+            ),
             ("co_located_poc", "co located POCs unavailable|co-located"),
             ("bytestream", "bytestream"),
-            ("decode_error", "error while decoding|error decoding|Error decoding|decoding error"),
+            (
+                "decode_error",
+                "error while decoding|error decoding|Error decoding|decoding error",
+            ),
             ("nonmono_dts", "non[- ]monoton(ous|ic) (DTS|PTS)|out of order"),
             ("invalid_dts", "Invalid (DTS|PTS)"),
-            ("guess_pts", "replacing by guess|generating non-monotonous|generating non-monotonic"),
+            (
+                "guess_pts",
+                "replacing by guess|generating non-monotonous|generating non-monotonic",
+            ),
         ];
         for (category, pattern) in patterns {
-            if regex::RegexBuilder::new(pattern).case_insensitive(true).build().is_ok_and(|re| re.is_match(line)) {
-                self.warnings.push(FfmpegWarning { category: category.to_string(), message: line.to_string() });
+            if regex::RegexBuilder::new(pattern)
+                .case_insensitive(true)
+                .build()
+                .is_ok_and(|re| re.is_match(line))
+            {
+                self.warnings.push(FfmpegWarning {
+                    category: category.to_string(),
+                    message: line.to_string(),
+                });
                 return;
             }
         }
         let lower = line.to_ascii_lowercase();
         if lower.contains("error") && lower.contains('@') && !lower.contains("frame=") {
-            self.warnings.push(FfmpegWarning { category: "other_error".to_string(), message: line.to_string() });
+            self.warnings.push(FfmpegWarning {
+                category: "other_error".to_string(),
+                message: line.to_string(),
+            });
         }
     }
-    pub fn warnings(&self) -> &[FfmpegWarning] { &self.warnings }
+    pub fn warnings(&self) -> &[FfmpegWarning] {
+        &self.warnings
+    }
 }
 
 #[derive(Clone, Default)]
@@ -152,7 +192,8 @@ impl FfmpegRunner {
         output: &Path,
         cancel: CancellationToken,
     ) -> anyhow::Result<WarningTracker> {
-        self.run_concat(inputs, output, &["-c".to_string(), "copy".to_string()], cancel).await
+        self.run_concat(inputs, output, &["-c".to_string(), "copy".to_string()], cancel)
+            .await
     }
 
     pub async fn concat_encode(

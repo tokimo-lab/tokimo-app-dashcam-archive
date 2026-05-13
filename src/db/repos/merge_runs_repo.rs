@@ -110,10 +110,19 @@ impl MergeRunsRepo {
         bytes_out: Option<i64>,
     ) -> anyhow::Result<()> {
         merge_runs::Entity::update_many()
-            .col_expr(merge_runs::Column::TotalGroups, sea_orm::sea_query::Expr::value(total_groups))
+            .col_expr(
+                merge_runs::Column::TotalGroups,
+                sea_orm::sea_query::Expr::value(total_groups),
+            )
             .col_expr(merge_runs::Column::OkGroups, sea_orm::sea_query::Expr::value(ok_groups))
-            .col_expr(merge_runs::Column::DowngradedGroups, sea_orm::sea_query::Expr::value(downgraded_groups))
-            .col_expr(merge_runs::Column::FailedGroups, sea_orm::sea_query::Expr::value(failed_groups))
+            .col_expr(
+                merge_runs::Column::DowngradedGroups,
+                sea_orm::sea_query::Expr::value(downgraded_groups),
+            )
+            .col_expr(
+                merge_runs::Column::FailedGroups,
+                sea_orm::sea_query::Expr::value(failed_groups),
+            )
             .col_expr(merge_runs::Column::BytesIn, sea_orm::sea_query::Expr::value(bytes_in))
             .col_expr(merge_runs::Column::BytesOut, sea_orm::sea_query::Expr::value(bytes_out))
             .filter(merge_runs::Column::Id.eq(id))
@@ -149,20 +158,40 @@ impl MergeRunsRepo {
         Ok(merge_groups::Entity::insert(active).exec_with_returning(db).await?)
     }
 
-    pub async fn update_group<C: ConnectionTrait>(
-        db: &C,
-        id: Uuid,
-        update: GroupUpdate,
-    ) -> anyhow::Result<()> {
+    pub async fn update_group<C: ConnectionTrait>(db: &C, id: Uuid, update: GroupUpdate) -> anyhow::Result<()> {
         merge_groups::Entity::update_many()
-            .col_expr(merge_groups::Column::StartDt, sea_orm::sea_query::Expr::value(update.start_dt))
-            .col_expr(merge_groups::Column::EndDt, sea_orm::sea_query::Expr::value(update.end_dt))
-            .col_expr(merge_groups::Column::Status, sea_orm::sea_query::Expr::value(update.status))
-            .col_expr(merge_groups::Column::WarningLevel, sea_orm::sea_query::Expr::value(update.warning_level))
-            .col_expr(merge_groups::Column::DurationSecs, sea_orm::sea_query::Expr::value(update.duration_secs))
-            .col_expr(merge_groups::Column::BytesIn, sea_orm::sea_query::Expr::value(update.bytes_in))
-            .col_expr(merge_groups::Column::BytesOut, sea_orm::sea_query::Expr::value(update.bytes_out))
-            .col_expr(merge_groups::Column::AbortReason, sea_orm::sea_query::Expr::value(update.abort_reason))
+            .col_expr(
+                merge_groups::Column::StartDt,
+                sea_orm::sea_query::Expr::value(update.start_dt),
+            )
+            .col_expr(
+                merge_groups::Column::EndDt,
+                sea_orm::sea_query::Expr::value(update.end_dt),
+            )
+            .col_expr(
+                merge_groups::Column::Status,
+                sea_orm::sea_query::Expr::value(update.status),
+            )
+            .col_expr(
+                merge_groups::Column::WarningLevel,
+                sea_orm::sea_query::Expr::value(update.warning_level),
+            )
+            .col_expr(
+                merge_groups::Column::DurationSecs,
+                sea_orm::sea_query::Expr::value(update.duration_secs),
+            )
+            .col_expr(
+                merge_groups::Column::BytesIn,
+                sea_orm::sea_query::Expr::value(update.bytes_in),
+            )
+            .col_expr(
+                merge_groups::Column::BytesOut,
+                sea_orm::sea_query::Expr::value(update.bytes_out),
+            )
+            .col_expr(
+                merge_groups::Column::AbortReason,
+                sea_orm::sea_query::Expr::value(update.abort_reason),
+            )
             .filter(merge_groups::Column::Id.eq(id))
             .exec(db)
             .await?;

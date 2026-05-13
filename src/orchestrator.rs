@@ -37,8 +37,7 @@ impl Orchestrator {
         let source = SourcesRepo::get(&self.db, source_id, user_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("source not found"))?;
-        let run = MergeRunsRepo::create_run(&self.db, source.id, "manual".to_string())
-        .await?;
+        let run = MergeRunsRepo::create_run(&self.db, source.id, "manual".to_string()).await?;
         let run_id = run.id;
         let token = CancellationToken::default();
         self.active_runs.lock().await.insert(run_id, token.clone());

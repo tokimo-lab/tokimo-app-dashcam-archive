@@ -23,7 +23,10 @@ impl WarningsRepo {
         Ok(warnings::Entity::insert(active).exec_with_returning(db).await?)
     }
 
-    pub async fn list_for_groups<C: ConnectionTrait>(db: &C, group_ids: Vec<Uuid>) -> anyhow::Result<Vec<warnings::Model>> {
+    pub async fn list_for_groups<C: ConnectionTrait>(
+        db: &C,
+        group_ids: Vec<Uuid>,
+    ) -> anyhow::Result<Vec<warnings::Model>> {
         if group_ids.is_empty() {
             return Ok(Vec::new());
         }

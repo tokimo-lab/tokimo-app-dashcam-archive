@@ -59,7 +59,10 @@ async fn run_server() -> anyhow::Result<()> {
     db::init_schema(&db).await?;
     let client_slot = Arc::new(OnceLock::new());
     let ffmpeg_paths = Arc::new(tokio::sync::RwLock::new(FfmpegPaths::from_env()));
-    let workers = std::env::var("DASHCAM_ARCHIVE_PARALLEL_SOURCES").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1);
+    let workers = std::env::var("DASHCAM_ARCHIVE_PARALLEL_SOURCES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1);
     let orchestrator = Orchestrator::new(db.clone(), Arc::clone(&ffmpeg_paths), workers);
     let ctx = Arc::new(handlers::AppCtx {
         db: db.clone(),

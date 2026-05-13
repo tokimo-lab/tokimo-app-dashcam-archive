@@ -107,7 +107,9 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS source_id UUID"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS trigger TEXT NOT NULL DEFAULT ''"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued'"#),
-        format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"#),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"#
+        ),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS total_groups INT NOT NULL DEFAULT 0"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS ok_groups INT NOT NULL DEFAULT 0"#),
@@ -115,7 +117,9 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS failed_groups INT NOT NULL DEFAULT 0"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS bytes_in BIGINT"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS bytes_out BIGINT"#),
-        format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS folder_breaker_tripped BOOL NOT NULL DEFAULT false"#),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS folder_breaker_tripped BOOL NOT NULL DEFAULT false"#
+        ),
         format!(r#"ALTER TABLE {SCHEMA}.merge_runs ADD COLUMN IF NOT EXISTS log_summary TEXT"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid()"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS run_id UUID"#),
@@ -125,25 +129,34 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS output_path TEXT NOT NULL DEFAULT ''"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS decision TEXT NOT NULL DEFAULT 'copy'"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'"#),
-        format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS warning_level TEXT NOT NULL DEFAULT 'clean'"#),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS warning_level TEXT NOT NULL DEFAULT 'clean'"#
+        ),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS bytes_in BIGINT"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS bytes_out BIGINT"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS duration_secs DOUBLE PRECISION"#),
         format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS abort_reason TEXT"#),
-        format!(r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"#),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.merge_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()"#
+        ),
         format!(r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid()"#),
         format!(r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS group_id UUID"#),
-        format!(r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS warning_key TEXT NOT NULL DEFAULT 'unknown'"#),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS warning_key TEXT NOT NULL DEFAULT 'unknown'"#
+        ),
         format!(r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS count INT NOT NULL DEFAULT 0"#),
         format!(r#"ALTER TABLE {SCHEMA}.warnings ADD COLUMN IF NOT EXISTS first_example TEXT"#),
         format!(r#"CREATE INDEX IF NOT EXISTS sources_user_id_idx ON {SCHEMA}.sources (user_id)"#),
         format!(r#"CREATE INDEX IF NOT EXISTS sources_enabled_idx ON {SCHEMA}.sources (enabled)"#),
-        format!(r#"CREATE INDEX IF NOT EXISTS merge_runs_source_started_idx ON {SCHEMA}.merge_runs (source_id, started_at DESC)"#),
+        format!(
+            r#"CREATE INDEX IF NOT EXISTS merge_runs_source_started_idx ON {SCHEMA}.merge_runs (source_id, started_at DESC)"#
+        ),
         format!(r#"CREATE INDEX IF NOT EXISTS merge_groups_run_idx ON {SCHEMA}.merge_groups (run_id)"#),
         format!(r#"CREATE INDEX IF NOT EXISTS warnings_group_idx ON {SCHEMA}.warnings (group_id)"#),
     ];
     for sql in ddl {
-        db.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql)).await?;
+        db.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+            .await?;
     }
     Ok(())
 }
