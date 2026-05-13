@@ -143,8 +143,8 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
     data.trigger_mode === "watcher" || data.trigger_mode === "cron+watcher";
 
   return (
-    <div className="relative flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto p-4 pb-32">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
         <SettingGroup title={t("sectionBasic")}>
           <SettingRow label={t("fieldName")}>
             <Input
@@ -319,17 +319,19 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
             </SettingRow>
           )}
         </SettingGroup>
-      </div>
 
-      <StickySaveBar
-        dirty={true}
-        loading={saving}
-        onSave={handleSave}
-        onReset={() => {
-          setData(initialData);
-          setParamsJson(JSON.stringify(initialData.encoder_params, null, 2));
-        }}
-      />
+        <StickySaveBar
+          dirty={true}
+          loading={saving}
+          onSave={handleSave}
+          onReset={() => {
+            setData(initialData);
+            setParamsJson(JSON.stringify(initialData.encoder_params, null, 2));
+          }}
+          saveLabel={t("btnSave")}
+          resetLabel={t("btnCancel")}
+        />
+      </div>
     </div>
   );
 }
