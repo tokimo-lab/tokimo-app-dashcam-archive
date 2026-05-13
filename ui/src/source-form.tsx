@@ -3,7 +3,6 @@
  */
 import {
   Button,
-  Collapse,
   Input,
   InputNumber,
   Popconfirm,
@@ -237,24 +236,14 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
               }))}
             />
           </SettingRow>
-          <Collapse
-            ghost
-            size="small"
-            items={[
-              {
-                key: "params",
-                label: t("fieldEncoderParams"),
-                children: (
-                  <textarea
-                    value={paramsJson}
-                    onChange={(e) => setParamsJson(e.target.value)}
-                    rows={8}
-                    className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
-                  />
-                ),
-              },
-            ]}
-          />
+          <SettingRow label={t("fieldEncoderParams")} orientation="vertical">
+            <textarea
+              value={paramsJson}
+              onChange={(e) => setParamsJson(e.target.value)}
+              rows={8}
+              className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
+            />
+          </SettingRow>
         </SettingGroup>
 
         <SettingGroup title={t("sectionTrigger")}>
