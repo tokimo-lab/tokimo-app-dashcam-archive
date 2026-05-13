@@ -70,7 +70,8 @@ export const zhCN: Record<string, string> = {
 
   sectionTrigger: "触发设置",
   fieldTriggerMode: "触发方式",
-  hintManualOnly: "仅手动模式无需额外配置。切换到「定时任务」可设置 Cron 表达式；「文件监控」可配置防抖秒数；「定时+监控」两者皆可。",
+  hintManualOnly:
+    "仅手动模式无需额外配置。切换到「定时任务」可设置 Cron 表达式；「文件监控」可配置防抖秒数；「定时+监控」两者皆可。",
   triggerManualOnly: "仅手动",
   triggerCron: "定时任务",
   triggerWatcher: "文件监控",
@@ -227,7 +228,8 @@ export const enUS: Record<string, string> = {
 
   sectionTrigger: "Trigger Settings",
   fieldTriggerMode: "Trigger Mode",
-  hintManualOnly: "Manual-only mode needs no extra configuration. Switch to \"Cron\" to set a cron expression, \"Watcher\" to configure debounce, or \"Cron + Watcher\" for both.",
+  hintManualOnly:
+    'Manual-only mode needs no extra configuration. Switch to "Cron" to set a cron expression, "Watcher" to configure debounce, or "Cron + Watcher" for both.',
   triggerManualOnly: "Manual Only",
   triggerCron: "Cron",
   triggerWatcher: "Watcher",

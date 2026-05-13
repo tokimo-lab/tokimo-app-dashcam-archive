@@ -82,9 +82,11 @@ export const zhCN: Record<string, string> = {
 
 export const enUS: Record<string, string> = {
   title: "Dashcam Archive",
-  subtitle: "Group, merge, and transcode dashcam / surveillance footage by time",
+  subtitle:
+    "Group, merge, and transcode dashcam / surveillance footage by time",
   appName: "Dashcam Archive",
-  appSubtitle: "Group, merge, and transcode dashcam / surveillance footage by time",
+  appSubtitle:
+    "Group, merge, and transcode dashcam / surveillance footage by time",
 
   // Form sections
   sectionBasic: "Basic Settings",

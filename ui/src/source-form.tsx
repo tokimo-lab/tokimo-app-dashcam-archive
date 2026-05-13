@@ -122,7 +122,6 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
     }
   };
 
-
   const monthlyOpts = [
     { value: "auto", label: t("optionAuto") },
     { value: "on", label: t("optionOn") },
@@ -191,7 +190,10 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
             <SegmentedControl
               value={data.monthly_subdirs ?? "auto"}
               onChange={(val) =>
-                setData({ ...data, monthly_subdirs: val as "auto" | "on" | "off" })
+                setData({
+                  ...data,
+                  monthly_subdirs: val as "auto" | "on" | "off",
+                })
               }
               options={monthlyOpts}
             />
@@ -250,12 +252,19 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
           <SettingRow
             label={t("fieldTriggerMode")}
             orientation="vertical"
-            desc={data.trigger_mode === "manual_only" ? t("hintManualOnly") : undefined}
+            desc={
+              data.trigger_mode === "manual_only"
+                ? t("hintManualOnly")
+                : undefined
+            }
           >
             <SegmentedControl
               value={data.trigger_mode ?? "manual_only"}
               onChange={(val) =>
-                setData({ ...data, trigger_mode: val as SourceReq["trigger_mode"] })
+                setData({
+                  ...data,
+                  trigger_mode: val as SourceReq["trigger_mode"],
+                })
               }
               options={triggerModeOpts}
               className="w-full"
@@ -301,11 +310,7 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
                 cancelText={t("btnCancel")}
                 onConfirm={handleDelete}
               >
-                <Button
-                  variant="danger"
-                  disabled={deleting}
-                  loading={deleting}
-                >
+                <Button variant="danger" disabled={deleting} loading={deleting}>
                   {t("btnDelete")}
                 </Button>
               </Popconfirm>

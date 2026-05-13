@@ -32,7 +32,9 @@ export function DirPicker({ value, onChange, t }: DirPickerProps) {
   const [browsePath, setBrowsePath] = useState(value || "/");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [browseData, setBrowseData] = useState<BrowseResponse["data"] | null>(null);
+  const [browseData, setBrowseData] = useState<BrowseResponse["data"] | null>(
+    null,
+  );
 
   const fetchBrowse = async (path: string) => {
     setLoading(true);
@@ -103,16 +105,10 @@ export function DirPicker({ value, onChange, t }: DirPickerProps) {
         </div>
 
         {loading && (
-          <div className="text-fg-secondary text-sm">
-            {t("loading")}
-          </div>
+          <div className="text-fg-secondary text-sm">{t("loading")}</div>
         )}
 
-        {error && (
-          <div className="text-fg-danger text-sm">
-            {error}
-          </div>
-        )}
+        {error && <div className="text-fg-danger text-sm">{error}</div>}
 
         {!loading && !error && browseData && (
           <div className="max-h-96 space-y-1 overflow-y-auto">
