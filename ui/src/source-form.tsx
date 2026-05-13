@@ -3,6 +3,7 @@
  */
 import {
   Button,
+  Collapse,
   Input,
   InputNumber,
   Popconfirm,
@@ -66,7 +67,6 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
 
   const [data, setData] = useState<SourceReq>(initialData);
   const [encoders, setEncoders] = useState<EncoderDto[]>([]);
-  const [showParams, setShowParams] = useState(false);
   const [paramsJson, setParamsJson] = useState(
     JSON.stringify(initialData.encoder_params, null, 2),
   );
@@ -82,15 +82,13 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      let params = data.encoder_params;
-      if (showParams) {
-        try {
-          params = JSON.parse(paramsJson) as Record<string, unknown>;
-        } catch {
-          toast.error(t("invalidJsonParams"));
-          setSaving(false);
-          return;
-        }
+      let params: Record<string, unknown>;
+      try {
+        params = JSON.parse(paramsJson) as Record<string, unknown>;
+      } catch {
+        toast.error(t("invalidJsonParams"));
+        setSaving(false);
+        return;
       }
       const payload = { ...data, encoder_params: params };
       if (isCreate) {
@@ -239,27 +237,24 @@ export function SourceForm({ source, onSaved, onDeleted, t }: Props) {
               }))}
             />
           </SettingRow>
-          <SettingRow
-            label={
-              <button
-                type="button"
-                onClick={() => setShowParams(!showParams)}
-                className="text-accent cursor-pointer text-xs underline"
-              >
-                {t(showParams ? "hideParams" : "showParams")}
-              </button>
-            }
-            orientation="vertical"
-          >
-            {showParams && (
-              <textarea
-                value={paramsJson}
-                onChange={(e) => setParamsJson(e.target.value)}
-                rows={8}
-                className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
-              />
-            )}
-          </SettingRow>
+          <Collapse
+            ghost
+            size="small"
+            items={[
+              {
+                key: "params",
+                label: t("fieldEncoderParams"),
+                children: (
+                  <textarea
+                    value={paramsJson}
+                    onChange={(e) => setParamsJson(e.target.value)}
+                    rows={8}
+                    className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
+                  />
+                ),
+              },
+            ]}
+          />
         </SettingGroup>
 
         <SettingGroup title={t("sectionTrigger")}>
