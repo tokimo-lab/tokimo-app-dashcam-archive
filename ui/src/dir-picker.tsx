@@ -1,5 +1,5 @@
-import { Button, FolderOpenOutlined, Input } from "@tokimo/ui";
 import type { ShellApi } from "@tokimo/sdk";
+import { Button, FolderOpenOutlined, Input } from "@tokimo/ui";
 
 export interface DirPickerProps {
   value: string;

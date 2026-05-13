@@ -1,6 +1,7 @@
 /**
  * Settings form for creating/editing a source.
  */
+import type { ShellApi } from "@tokimo/sdk";
 import {
   Button,
   Input,
@@ -14,7 +15,6 @@ import {
   Switch,
   useToast,
 } from "@tokimo/ui";
-import type { ShellApi } from "@tokimo/sdk";
 import { useEffect, useState } from "react";
 import type { EncoderDto, SourceDto, SourceReq } from "./api";
 import { createSource, deleteSource, getEncoders, updateSource } from "./api";
