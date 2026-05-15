@@ -24,9 +24,7 @@ export default function SourceSettingsWindow({
   // mount effects (mount → cleanup → mount), which would wipe the
   // registry entry the instant the modal commits, leaving subsequent
   // re-renders to fall back to `return null` and the content disappears.
-  const [bridge] = useState(() =>
-    bridgeId ? getBridge(bridgeId) : undefined,
-  );
+  const [bridge] = useState(() => (bridgeId ? getBridge(bridgeId) : undefined));
 
   if (bridge?.kind !== "source-settings") return null;
 
