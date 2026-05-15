@@ -16,13 +16,14 @@ import { enUS, zhCN } from "./i18n";
 import "./index.css";
 
 function DashcamArchiveApp({ ctx }: { ctx: AppRuntimeCtx }) {
-  const t = makeTranslator({ "zh-CN": zhCN, "en-US": enUS }, ctx.locale);
-  const locale = ctx.locale === "zh-CN" ? uiZhCN : uiEnUS;
+  const appLocale = ctx.locale === "en-US" ? "en-US" : "zh-CN";
+  const t = makeTranslator({ "zh-CN": zhCN, "en-US": enUS }, appLocale);
+  const locale = appLocale === "zh-CN" ? uiZhCN : uiEnUS;
 
   return (
     <ConfigProvider locale={locale}>
       <ToastProvider>
-        <Dashboard shell={ctx.shell} t={t} />
+        <Dashboard shell={ctx.shell} t={t} locale={appLocale} />
       </ToastProvider>
     </ConfigProvider>
   );

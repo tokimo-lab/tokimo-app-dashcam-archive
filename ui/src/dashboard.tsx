@@ -7,25 +7,19 @@ import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { SourceDto } from "./api";
 import { getSources } from "./api";
-import { HistoryModal } from "./history-modal";
+import { registerBridge } from "./modal-bridge";
 import { SourceCard } from "./source-card";
-import { SourceSettingsModal } from "./source-settings-modal";
 
 interface Props {
   shell: ShellApi;
   t: (key: string) => string;
+  locale: string;
 }
 
-export function Dashboard({ shell, t }: Props) {
+export function Dashboard({ shell, t, locale }: Props) {
   const [sources, setSources] = useState<SourceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Modal states
-  const [settingsSource, setSettingsSource] = useState<
-    SourceDto | "create" | null
-  >(null);
-  const [historySource, setHistorySource] = useState<SourceDto | null>(null);
 
   const loadSources = useCallback(() => {
     let mounted = true;
@@ -51,13 +45,51 @@ export function Dashboard({ shell, t }: Props) {
 
   useEffect(() => loadSources(), [loadSources]);
 
-  const handleSaved = () => {
+  const handleSaved = useCallback(() => {
     loadSources();
-  };
+  }, [loadSources]);
 
-  const handleDeleted = () => {
+  const handleDeleted = useCallback(() => {
     loadSources();
-  };
+  }, [loadSources]);
+
+  const openSourceSettings = useCallback(
+    (source: SourceDto | "create") => {
+      const bridgeId = registerBridge({
+        kind: "source-settings",
+        shell,
+        source,
+        onSaved: handleSaved,
+        onDeleted: handleDeleted,
+      });
+      shell.openModalWindow({
+        component: () => import("./source-settings-window"),
+        title: source === "create" ? t("modalNewSource") : t("modalEditSource"),
+        width: 520,
+        height: 720,
+        metadata: { bridgeId, locale },
+      });
+    },
+    [handleDeleted, handleSaved, locale, shell, t],
+  );
+
+  const openHistory = useCallback(
+    (source: SourceDto) => {
+      const bridgeId = registerBridge({
+        kind: "history",
+        sourceId: source.id,
+        sourceName: source.name,
+      });
+      shell.openModalWindow({
+        component: () => import("./history-window"),
+        title: `${source.name} — ${t("modalHistoryTitle")}`,
+        width: 680,
+        height: 720,
+        metadata: { bridgeId, locale },
+      });
+    },
+    [locale, shell, t],
+  );
 
   const enabledCount = sources.filter((s) => s.enabled).length;
 
@@ -85,7 +117,7 @@ export function Dashboard({ shell, t }: Props) {
             </div>
           </div>
           <Button
-            onClick={() => setSettingsSource("create")}
+            onClick={() => openSourceSettings("create")}
             className="flex items-center gap-1"
           >
             <Plus size={16} />
@@ -122,7 +154,7 @@ export function Dashboard({ shell, t }: Props) {
               <SourceCard
                 key={source.id}
                 source={source}
-                onSettingsClick={() => setSettingsSource(source)}
+                onSettingsClick={() => openSourceSettings(source)}
                 onToggle={(enabled) => {
                   setSources((prev) =>
                     prev.map((s) =>
@@ -130,30 +162,13 @@ export function Dashboard({ shell, t }: Props) {
                     ),
                   );
                 }}
-                onViewHistory={() => setHistorySource(source)}
+                onViewHistory={() => openHistory(source)}
                 t={t}
               />
             ))}
           </div>
         )}
       </div>
-
-      {/* Settings drawer */}
-      <SourceSettingsModal
-        source={settingsSource}
-        onClose={() => setSettingsSource(null)}
-        onSaved={handleSaved}
-        onDeleted={handleDeleted}
-        shell={shell}
-        t={t}
-      />
-
-      {/* History drawer */}
-      <HistoryModal
-        source={historySource}
-        onClose={() => setHistorySource(null)}
-        t={t}
-      />
     </div>
   );
 }
