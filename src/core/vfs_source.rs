@@ -8,7 +8,6 @@ use uuid::Uuid;
 #[derive(Debug, FromQueryResult)]
 struct VfsRecord {
     id: Uuid,
-    #[sea_orm(column_name = "type")]
     vfs_type: String,
     config: Value,
 }
@@ -16,7 +15,7 @@ struct VfsRecord {
 pub async fn build_vfs(db: &DatabaseConnection, source_id: Uuid, source_type: &str) -> anyhow::Result<Arc<Vfs>> {
     let stmt = Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT id, type, COALESCE(config, '{}'::jsonb) AS config FROM public.vfs WHERE id = $1",
+        r#"SELECT id, "type" AS vfs_type, COALESCE(config, '{}'::jsonb) AS config FROM public.vfs WHERE id = $1"#,
         [source_id.into()],
     );
     let Some(record) = VfsRecord::find_by_statement(stmt).one(db).await? else {
