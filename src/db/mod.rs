@@ -17,7 +17,6 @@ pub async fn init_pool() -> anyhow::Result<DatabaseConnection> {
 pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
     let ddl = [
         format!(r#"CREATE SCHEMA IF NOT EXISTS {SCHEMA}"#),
-        format!(r#"DROP TABLE IF EXISTS {SCHEMA}.sources CASCADE"#),
         format!(
             r#"CREATE TABLE IF NOT EXISTS {SCHEMA}.sources (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,7 +31,7 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
                 encoder TEXT NOT NULL DEFAULT 'auto',
                 encoder_params JSONB NOT NULL DEFAULT '{{}}',
                 max_gap_seconds INT NOT NULL DEFAULT 60,
-                max_group_duration_seconds INT NOT NULL DEFAULT 7200,
+                max_group_duration_seconds INT NOT NULL DEFAULT 0,
                 monthly_subdirs TEXT NOT NULL DEFAULT 'auto',
                 allow_combined_input BOOL NOT NULL DEFAULT false,
                 no_broken_split BOOL NOT NULL DEFAULT false,
