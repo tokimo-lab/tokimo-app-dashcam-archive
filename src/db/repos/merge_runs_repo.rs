@@ -102,6 +102,26 @@ impl MergeRunsRepo {
         Ok(Some(active.update(db).await?))
     }
 
+    pub async fn set_status_with_summary<C: ConnectionTrait>(
+        db: &C,
+        id: Uuid,
+        status: &str,
+        log_summary: Option<String>,
+    ) -> anyhow::Result<Option<merge_runs::Model>> {
+        let Some(existing) = Self::get_run(db, id).await? else {
+            return Ok(None);
+        };
+        let mut active: merge_runs::ActiveModel = existing.into();
+        active.status = Set(status.to_string());
+        if matches!(status, "succeeded" | "failed" | "cancelled") {
+            active.finished_at = Set(Some(Utc::now().into()));
+        }
+        if let Some(summary) = log_summary {
+            active.log_summary = Set(Some(summary));
+        }
+        Ok(Some(active.update(db).await?))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn update_counters<C: ConnectionTrait>(
         db: &C,

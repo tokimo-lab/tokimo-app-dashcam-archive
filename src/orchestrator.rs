@@ -77,7 +77,14 @@ impl Orchestrator {
                     "failed"
                 };
                 let error_text = error.to_string();
-                let _ = MergeRunsRepo::set_status(&this.db, run.id, status).await;
+                tracing::error!(run_id=%run.id, %error, "dashcam-archive: run failed");
+                let _ = MergeRunsRepo::set_status_with_summary(
+                    &this.db,
+                    run.id,
+                    status,
+                    Some(error_text.clone()),
+                )
+                .await;
                 if let Some(client) = this.bus.get() {
                     let caller = CallerCtx {
                         user_id: Some(user_id.to_string()),
