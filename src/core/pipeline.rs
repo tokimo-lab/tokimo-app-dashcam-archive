@@ -7,6 +7,8 @@ use std::{
 use chrono::Datelike;
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
+use tokimo_bus_client::BusClient;
+use tokimo_bus_protocol::CallerCtx;
 use tokimo_package_ffmpeg::{
     DirectInput as FfmpegDirectInput, TranscodeOptions as FfmpegTranscodeOptions,
     cancellation_token as ffmpeg_cancellation_token,
@@ -57,6 +59,8 @@ pub struct Pipeline {
     db: DatabaseConnection,
     paths: Arc<tokio::sync::RwLock<crate::core::ffmpeg::FfmpegPaths>>,
     progress: tokio::sync::broadcast::Sender<ProgressEvent>,
+    bus: Arc<std::sync::OnceLock<Arc<BusClient>>>,
+    user_id: uuid::Uuid,
 }
 
 impl Pipeline {
@@ -64,8 +68,33 @@ impl Pipeline {
         db: DatabaseConnection,
         paths: Arc<tokio::sync::RwLock<crate::core::ffmpeg::FfmpegPaths>>,
         progress: tokio::sync::broadcast::Sender<ProgressEvent>,
+        bus: Arc<std::sync::OnceLock<Arc<BusClient>>>,
+        user_id: uuid::Uuid,
     ) -> Self {
-        Self { db, paths, progress }
+        Self {
+            db,
+            paths,
+            progress,
+            bus,
+            user_id,
+        }
+    }
+
+    async fn bus_invoke(&self, method: &str, payload: serde_json::Value) {
+        let Some(client) = self.bus.get() else { return };
+        let caller = CallerCtx {
+            user_id: Some(self.user_id.to_string()),
+            request_id: uuid::Uuid::new_v4().to_string(),
+            workspace: None,
+        };
+        match serde_json::to_vec(&payload) {
+            Ok(bytes) => {
+                if let Err(error) = client.invoke("task_queue", method, bytes, caller).await {
+                    tracing::warn!(%error, method, "dashcam-archive: task_queue bus call failed");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "dashcam-archive: task_queue payload serialize failed"),
+        }
     }
 
     pub async fn run(
@@ -75,6 +104,19 @@ impl Pipeline {
         cancel: CancellationToken,
     ) -> anyhow::Result<()> {
         MergeRunsRepo::set_status(&self.db, run.id, "running").await?;
+        self.bus_invoke(
+            "upsert_job",
+            serde_json::json!({
+                "job_id": run.id,
+                "app_id": "dashcam-archive",
+                "user_id": self.user_id,
+                "title": format!("{} (归并)", source.name),
+                "status": "running",
+                "progress": 0.0,
+                "metadata": {},
+            }),
+        )
+        .await;
         let state_dir = std::env::var("TOKIMO_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
         let staging = PathBuf::from(state_dir)
             .join("dashcam-archive")
@@ -128,6 +170,14 @@ impl Pipeline {
                 Some(file.path.to_string_lossy().to_string()),
                 percent,
             );
+            self.bus_invoke(
+                "update_progress",
+                serde_json::json!({
+                    "job_id": run.id,
+                    "progress": percent / 100.0,
+                }),
+            )
+            .await;
         }
 
         let gap = Duration::from_secs(u64::try_from(source.max_gap_seconds.max(1)).unwrap_or(60));
@@ -290,6 +340,14 @@ impl Pipeline {
                 Some(out_vfs.to_string_lossy().to_string()),
                 percent,
             );
+            self.bus_invoke(
+                "update_progress",
+                serde_json::json!({
+                    "job_id": run.id,
+                    "progress": percent / 100.0,
+                }),
+            )
+            .await;
         }
 
         MergeRunsRepo::update_counters(
@@ -318,6 +376,14 @@ impl Pipeline {
         .await?;
         MergeRunsRepo::set_status(&self.db, run.id, "succeeded").await?;
         self.emit(run.id, "succeeded", groups.len(), ok_count, failed_count, None, 100.0);
+        self.bus_invoke(
+            "complete_job",
+            serde_json::json!({
+                "job_id": run.id,
+                "status": "completed",
+            }),
+        )
+        .await;
         Ok(())
     }
 

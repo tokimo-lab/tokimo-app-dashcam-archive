@@ -1,5 +1,8 @@
 use chrono::{DateTime, FixedOffset, Utc};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder,
+};
 use uuid::Uuid;
 
 use crate::db::entities::{merge_groups, merge_runs, sources};
@@ -205,5 +208,15 @@ impl MergeRunsRepo {
             .order_by_asc(merge_groups::Column::CreatedAt)
             .all(db)
             .await?)
+    }
+
+    /// Returns `true` if there is already a queued or running merge run for the given source.
+    pub async fn has_active_run<C: ConnectionTrait>(db: &C, source_id: Uuid) -> anyhow::Result<bool> {
+        let count = merge_runs::Entity::find()
+            .filter(merge_runs::Column::SourceId.eq(source_id))
+            .filter(merge_runs::Column::Status.is_in(["queued", "running"]))
+            .count(db)
+            .await?;
+        Ok(count > 0)
     }
 }

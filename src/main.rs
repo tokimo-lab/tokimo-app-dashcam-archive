@@ -63,7 +63,7 @@ async fn run_server() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(1);
-    let orchestrator = Orchestrator::new(db.clone(), Arc::clone(&ffmpeg_paths), workers);
+    let orchestrator = Orchestrator::new(db.clone(), Arc::clone(&ffmpeg_paths), workers, Arc::clone(&client_slot));
     let ctx = Arc::new(handlers::AppCtx {
         db: db.clone(),
         client: Arc::clone(&client_slot),
