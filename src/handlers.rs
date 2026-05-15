@@ -322,13 +322,16 @@ pub async fn create_source(
     user: TokimoUser,
     Json(req): Json<SourceReq>,
 ) -> Result<Json<SourceDto>, AppError> {
-    Ok(Json(SourceDto::from(
+    let dto = SourceDto::from(
         SourcesRepo::create(
             &ctx.db,
             source_input(&ctx.db, req, parse_user_id(&user.user_id)?).await?,
         )
         .await?,
-    )))
+    );
+    let orchestrator = ctx.orchestrator.clone();
+    tokio::spawn(async move { orchestrator.reload_supervisors().await });
+    Ok(Json(dto))
 }
 pub async fn get_source(
     State(ctx): State<Arc<AppCtx>>,
@@ -358,6 +361,8 @@ pub async fn update_source(
     )
     .await?
     .ok_or_else(|| AppError::not_found("source not found"))?;
+    let orchestrator = ctx.orchestrator.clone();
+    tokio::spawn(async move { orchestrator.reload_supervisors().await });
     Ok(Json(SourceDto::from(source)))
 }
 #[derive(Serialize)]
@@ -369,9 +374,10 @@ pub async fn delete_source(
     Path(id): Path<Uuid>,
     user: TokimoUser,
 ) -> Result<Json<DeleteResp>, AppError> {
-    Ok(Json(DeleteResp {
-        deleted: SourcesRepo::delete(&ctx.db, id, parse_user_id(&user.user_id)?).await?,
-    }))
+    let deleted = SourcesRepo::delete(&ctx.db, id, parse_user_id(&user.user_id)?).await?;
+    let orchestrator = ctx.orchestrator.clone();
+    tokio::spawn(async move { orchestrator.reload_supervisors().await });
+    Ok(Json(DeleteResp { deleted }))
 }
 #[derive(Serialize)]
 pub struct RunCreatedResp {
@@ -500,7 +506,7 @@ async fn source_input(db: &DatabaseConnection, req: SourceReq, user_id: Uuid) ->
         encoder: req.encoder.unwrap_or_else(|| "auto".to_string()),
         encoder_params: req.encoder_params.unwrap_or_else(|| serde_json::json!({})),
         max_gap_seconds: req.max_gap_seconds.unwrap_or(60),
-        max_group_duration_seconds: req.max_group_duration_seconds.unwrap_or(7200),
+        max_group_duration_seconds: req.max_group_duration_seconds.unwrap_or(0),
         monthly_subdirs: req.monthly_subdirs.unwrap_or_else(|| "auto".to_string()),
         allow_combined_input: allow_combined,
         no_broken_split: req.no_broken_split.unwrap_or(false),
@@ -619,9 +625,7 @@ fn normalize_vfs_path(raw: &str, field: &str) -> Result<String, AppError> {
         return Err(AppError::bad_request(format!("{field} is empty")));
     }
     if trimmed.contains("vfs://") {
-        return Err(AppError::bad_request(format!(
-            "{field} must not contain 'vfs://'"
-        )));
+        return Err(AppError::bad_request(format!("{field} must not contain 'vfs://'")));
     }
     if trimmed.starts_with('/') {
         Ok(trimmed.to_string())

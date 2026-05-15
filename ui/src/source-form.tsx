@@ -15,7 +15,7 @@ import {
   Switch,
   useToast,
 } from "@tokimo/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EncoderDto, SourceDto, SourceReq } from "./api";
 import { createSource, deleteSource, getEncoders, updateSource } from "./api";
 import { DirPicker } from "./dir-picker";
@@ -43,6 +43,8 @@ type SourceFormState = Omit<
   src_path?: string;
   dst_path?: string;
 };
+
+type FieldKey = "name" | "src" | "dst" | "cron_expr";
 
 function sourceBinding(
   source: SourceDto,
@@ -107,7 +109,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         encoder: "auto",
         encoder_params: {},
         max_gap_seconds: 60,
-        max_group_duration_seconds: 7200,
+        max_group_duration_seconds: 0,
         monthly_subdirs: "auto",
         allow_combined_input: false,
         no_broken_split: false,
@@ -142,6 +144,19 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
+
+  const nameRef = useRef<HTMLDivElement>(null);
+  const srcRef = useRef<HTMLDivElement>(null);
+  const dstRef = useRef<HTMLDivElement>(null);
+  const cronRef = useRef<HTMLDivElement>(null);
+
+  const fieldRefs: Record<FieldKey, React.RefObject<HTMLDivElement | null>> = {
+    name: nameRef,
+    src: srcRef,
+    dst: dstRef,
+    cron_expr: cronRef,
+  };
 
   useEffect(() => {
     getEncoders()
@@ -149,7 +164,41 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
       .catch((err) => console.error("Load encoders failed:", err));
   }, []);
 
+  const showCron =
+    data.trigger_mode === "cron" || data.trigger_mode === "cron+watcher";
+  const showWatcher =
+    data.trigger_mode === "watcher" || data.trigger_mode === "cron+watcher";
+
+  const scrollToFirstError = (errs: Partial<Record<FieldKey, string>>) => {
+    const order: FieldKey[] = ["name", "src", "dst", "cron_expr"];
+    for (const key of order) {
+      if (errs[key]) {
+        const el = fieldRefs[key].current;
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        el?.querySelector<HTMLElement>("input, button")?.focus();
+        break;
+      }
+    }
+  };
+
+  const clearFieldError = (key: FieldKey) => {
+    setErrors((prev) => ({ ...prev, [key]: undefined }));
+  };
+
   const handleSave = async () => {
+    const errs: Partial<Record<FieldKey, string>> = {};
+    if (!data.name.trim()) errs.name = t("fieldRequiredName");
+    if (!data.src) errs.src = t("fieldRequiredSrcSource");
+    if (!data.dst) errs.dst = t("fieldRequiredDstSource");
+    if (showCron && !data.cron_expr?.trim())
+      errs.cron_expr = t("fieldRequiredCronExpr");
+
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      scrollToFirstError(errs);
+      return;
+    }
+
     setSaving(true);
     try {
       let params: Record<string, unknown>;
@@ -169,9 +218,20 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
       toast.success(t("saveSuccess"));
       onSaved();
     } catch (err) {
-      toast.error(
-        `${t("errorSave")}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      const backendErrs: Partial<Record<FieldKey, string>> = {};
+      if (msg.includes("name is")) backendErrs.name = msg;
+      else if (msg.includes("src_path is") || msg.includes("src_source_id"))
+        backendErrs.src = msg;
+      else if (msg.includes("dst_path is") || msg.includes("dst_source_id"))
+        backendErrs.dst = msg;
+      else if (msg.includes("cron_expr")) backendErrs.cron_expr = msg;
+
+      if (Object.keys(backendErrs).length > 0) {
+        setErrors(backendErrs);
+        scrollToFirstError(backendErrs);
+      }
+      toast.error(`${t("errorSave")}: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -206,56 +266,88 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
     { value: "cron+watcher", label: t("triggerCronWatcher") },
   ];
 
-  const showCron =
-    data.trigger_mode === "cron" || data.trigger_mode === "cron+watcher";
-  const showWatcher =
-    data.trigger_mode === "watcher" || data.trigger_mode === "cron+watcher";
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         <SettingGroup title={t("sectionBasic")}>
           <SettingRow label={t("fieldName")}>
-            <Input
-              value={data.name}
-              onChange={(e) => setData({ ...data, name: e.target.value })}
-              placeholder={t("placeholderName")}
-            />
+            <div ref={nameRef}>
+              <Input
+                value={data.name}
+                status={errors.name ? "error" : undefined}
+                onChange={(e) => {
+                  setData({ ...data, name: e.target.value });
+                  if (errors.name) clearFieldError("name");
+                }}
+                placeholder={t("placeholderName")}
+              />
+              {errors.name && (
+                <p className="text-fg-danger mt-1 text-xs">{errors.name}</p>
+              )}
+            </div>
           </SettingRow>
           <SettingRow label={t("fieldSrcPath")}>
-            <DirPicker
-              value={data.src}
-              onChange={(binding) =>
-                setData({
-                  ...data,
-                  src: binding,
-                  src_path: binding?.path ?? "",
-                })
-              }
-              legacyPath={data.src_path}
-              shell={shell}
-              t={t}
-            />
+            <div ref={srcRef}>
+              <div
+                className={
+                  errors.src
+                    ? "rounded-md outline outline-2 outline-red-500"
+                    : undefined
+                }
+              >
+                <DirPicker
+                  value={data.src}
+                  onChange={(binding) => {
+                    setData({
+                      ...data,
+                      src: binding,
+                      src_path: binding?.path ?? "",
+                    });
+                    if (errors.src) clearFieldError("src");
+                  }}
+                  legacyPath={data.src_path}
+                  shell={shell}
+                  t={t}
+                />
+              </div>
+              {errors.src && (
+                <p className="text-fg-danger mt-1 text-xs">{errors.src}</p>
+              )}
+            </div>
           </SettingRow>
           <SettingRow label={t("fieldDstPath")}>
-            <DirPicker
-              value={data.dst}
-              onChange={(binding) =>
-                setData({
-                  ...data,
-                  dst: binding,
-                  dst_path: binding?.path ?? "",
-                })
-              }
-              legacyPath={data.dst_path}
-              shell={shell}
-              t={t}
-            />
+            <div ref={dstRef}>
+              <div
+                className={
+                  errors.dst
+                    ? "rounded-md outline outline-2 outline-red-500"
+                    : undefined
+                }
+              >
+                <DirPicker
+                  value={data.dst}
+                  onChange={(binding) => {
+                    setData({
+                      ...data,
+                      dst: binding,
+                      dst_path: binding?.path ?? "",
+                    });
+                    if (errors.dst) clearFieldError("dst");
+                  }}
+                  legacyPath={data.dst_path}
+                  shell={shell}
+                  t={t}
+                />
+              </div>
+              {errors.dst && (
+                <p className="text-fg-danger mt-1 text-xs">{errors.dst}</p>
+              )}
+            </div>
           </SettingRow>
         </SettingGroup>
 
         <SettingGroup title={t("sectionGrouping")}>
-          <SettingRow label={t("fieldMaxGap")} desc={t("hintMaxGap")}>
+          <SettingRow label={t("fieldMaxGap")} desc={t("fieldMaxGapDesc")}>
             <InputNumber
               value={data.max_gap_seconds ?? 0}
               onChange={(val) =>
@@ -264,7 +356,10 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
               min={0}
             />
           </SettingRow>
-          <SettingRow label={t("fieldMaxDuration")}>
+          <SettingRow
+            label={t("fieldMaxDuration")}
+            desc={t("fieldMaxGroupDurationDesc")}
+          >
             <InputNumber
               value={data.max_group_duration_seconds ?? 0}
               onChange={(val) =>
@@ -285,7 +380,10 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
               options={monthlyOpts}
             />
           </SettingRow>
-          <SettingRow label={t("fieldAllowCombinedInput")}>
+          <SettingRow
+            label={t("fieldAllowCombinedInput")}
+            desc={t("fieldAllowCombinedInputDesc")}
+          >
             <Switch
               checked={data.allow_combined_input ?? false}
               onChange={(val) =>
@@ -293,7 +391,10 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
               }
             />
           </SettingRow>
-          <SettingRow label={t("fieldNoBrokenSplit")}>
+          <SettingRow
+            label={t("fieldNoBrokenSplit")}
+            desc={t("fieldNoBrokenSplitDesc")}
+          >
             <Switch
               checked={data.no_broken_split ?? false}
               onChange={(val) => setData({ ...data, no_broken_split: val })}
@@ -304,6 +405,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         <SettingGroup title={t("sectionEncoder")}>
           <SettingRow label={t("fieldEncoder")}>
             <Select
+              className="w-full min-w-[180px]"
               value={data.encoder}
               onChange={(val) => setData({ ...data, encoder: val })}
               options={encoders.map((enc) => ({
@@ -359,13 +461,22 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
           </SettingRow>
           {showCron && (
             <SettingRow label={t("fieldCronExpr")}>
-              <Input
-                value={data.cron_expr ?? ""}
-                onChange={(e) =>
-                  setData({ ...data, cron_expr: e.target.value })
-                }
-                placeholder={t("placeholderCronExpr")}
-              />
+              <div ref={cronRef}>
+                <Input
+                  value={data.cron_expr ?? ""}
+                  status={errors.cron_expr ? "error" : undefined}
+                  onChange={(e) => {
+                    setData({ ...data, cron_expr: e.target.value });
+                    if (errors.cron_expr) clearFieldError("cron_expr");
+                  }}
+                  placeholder={t("placeholderCronExpr")}
+                />
+                {errors.cron_expr && (
+                  <p className="text-fg-danger mt-1 text-xs">
+                    {errors.cron_expr}
+                  </p>
+                )}
+              </div>
             </SettingRow>
           )}
           {showWatcher && (
@@ -411,6 +522,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
           onSave={handleSave}
           onReset={() => {
             setData(initialData);
+            setErrors({});
             setParamsJson(JSON.stringify(initialData.encoder_params, null, 2));
           }}
           saveLabel={t("btnSave")}
