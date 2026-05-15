@@ -1,3 +1,8 @@
+// ⚠️ 不要在 ui/src/ 下创建 i18n.ts 文件！
+// Vite/Node 解析 `./i18n` 时文件优先于目录，i18n.ts 会 shadow 这个 index.ts，
+// 导致这里加的 key 全部 fallback 成 key 字符串（i18n shadow bug 已复发过 2 次）。
+// 所有翻译必须加在本文件里；不要拆出去。
+
 export const zhCN: Record<string, string> = {
   title: "录像归并",
   subtitle: "行车记录仪 / 监控视频按时间分组合并与转码",
