@@ -231,6 +231,9 @@ impl MergeRunsRepo {
     }
 
     /// Returns `true` if there is already a queued or running merge run for the given source.
+    /// Returns `true` if there is already a queued or running merge run for the given source.
+    /// Referenced by `cron_supervisor` / `watcher_supervisor` (V1/V2, not yet wired into `main.rs`).
+    #[allow(dead_code)]
     pub async fn has_active_run<C: ConnectionTrait>(db: &C, source_id: Uuid) -> anyhow::Result<bool> {
         let count = merge_runs::Entity::find()
             .filter(merge_runs::Column::SourceId.eq(source_id))

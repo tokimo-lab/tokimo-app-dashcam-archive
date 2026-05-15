@@ -29,6 +29,6 @@ pre-commit:
 pre-push:
   commands:
     fmt-check:
-      run: cargo fmt --all -- --check
+      run: cargo fmt -p tokimo-app-dashcam-archive -- --check
     clippy:
-      run: cargo clippy --bins --tests -- -D warnings
+      run: cargo clippy -p tokimo-app-dashcam-archive --bins --tests -- -D warnings

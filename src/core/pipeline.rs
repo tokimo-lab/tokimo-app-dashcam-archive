@@ -224,15 +224,8 @@ impl Pipeline {
             let (result, bytes_in) = if group.files.len() == 1 && runner.available() {
                 let item = &group.files[0];
                 let file_size = file_size_map.get(&item.path).copied().unwrap_or(0);
-                let direct_result = try_direct_input(
-                    &src_vfs,
-                    item,
-                    file_size,
-                    &local_out,
-                    &source.encoder,
-                    cancel.clone(),
-                )
-                .await;
+                let direct_result =
+                    try_direct_input(&src_vfs, item, file_size, &local_out, &source.encoder, cancel.clone()).await;
                 match direct_result {
                     Ok(r) => (Ok(r), file_size as i64),
                     Err(ref e) if e.to_string().contains("cancelled") => {
@@ -693,7 +686,6 @@ async fn run_with_encoder(
     }
 }
 
-
 async fn try_direct_input(
     src_vfs: &Arc<Vfs>,
     item: &crate::core::grouping::VideoItem,
@@ -720,12 +712,7 @@ async fn try_direct_input(
             "veryslow".to_string(),
             Some(u32::from(profile.crf)),
         ),
-        _ => (
-            "copy".to_string(),
-            "copy".to_string(),
-            "medium".to_string(),
-            None,
-        ),
+        _ => ("copy".to_string(), "copy".to_string(), "medium".to_string(), None),
     };
 
     let ffmpeg_cancel = ffmpeg_cancellation_token();
