@@ -1,8 +1,8 @@
 import { makeTranslator, type ShellWindowHandle } from "@tokimo/sdk";
-import { useEffect, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { HistoryPanel } from "./history-panel";
 import { enUS, zhCN } from "./i18n";
-import { clearBridge, getBridge } from "./modal-bridge";
+import { getBridge } from "./modal-bridge";
 
 export default function HistoryWindow({ win }: { win: ShellWindowHandle }) {
   const bridgeId =
@@ -13,13 +13,11 @@ export default function HistoryWindow({ win }: { win: ShellWindowHandle }) {
     () => makeTranslator({ "zh-CN": zhCN, "en-US": enUS }, locale),
     [locale],
   );
-  const bridge = bridgeId ? getBridge(bridgeId) : undefined;
-
-  useEffect(() => {
-    return () => {
-      if (bridgeId) clearBridge(bridgeId);
-    };
-  }, [bridgeId]);
+  // Snapshot bridge at mount; never re-read from registry on re-render.
+  // See source-settings-window.tsx for why useEffect cleanup is unsafe.
+  const [bridge] = useState(() =>
+    bridgeId ? getBridge(bridgeId) : undefined,
+  );
 
   if (bridge?.kind !== "history") return null;
 

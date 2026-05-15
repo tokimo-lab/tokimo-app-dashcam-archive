@@ -1,7 +1,7 @@
 import { makeTranslator, type ShellWindowHandle } from "@tokimo/sdk";
-import { useEffect, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { enUS, zhCN } from "./i18n";
-import { clearBridge, getBridge } from "./modal-bridge";
+import { getBridge } from "./modal-bridge";
 import { SourceForm } from "./source-form";
 
 export default function SourceSettingsWindow({
@@ -17,13 +17,16 @@ export default function SourceSettingsWindow({
     () => makeTranslator({ "zh-CN": zhCN, "en-US": enUS }, locale),
     [locale],
   );
-  const bridge = bridgeId ? getBridge(bridgeId) : undefined;
-
-  useEffect(() => {
-    return () => {
-      if (bridgeId) clearBridge(bridgeId);
-    };
-  }, [bridgeId]);
+  // Snapshot bridge entry at mount. Using useState init function so we
+  // only read the registry once; subsequent re-renders (e.g. host shake
+  // animation, prop changes) use the snapshot. NEVER clear the bridge
+  // via useEffect cleanup — React 18 StrictMode dev double-invokes
+  // mount effects (mount → cleanup → mount), which would wipe the
+  // registry entry the instant the modal commits, leaving subsequent
+  // re-renders to fall back to `return null` and the content disappears.
+  const [bridge] = useState(() =>
+    bridgeId ? getBridge(bridgeId) : undefined,
+  );
 
   if (bridge?.kind !== "source-settings") return null;
 

@@ -31,6 +31,16 @@ export function getBridge(id: string): ModalBridge | undefined {
   return registry.get(id);
 }
 
+/**
+ * ⚠️ Do NOT call clearBridge from useEffect cleanup in modal windows.
+ * React 18 StrictMode dev double-invokes mount effects (mount → cleanup
+ * → mount), which would wipe the entry instantly after the modal commits.
+ * Subsequent re-renders (e.g. host shake animation) would then fall back
+ * to `return null` and the modal content would disappear.
+ *
+ * Modal windows must snapshot the bridge once via `useState(() => getBridge(id))`.
+ * Letting entries accumulate is fine — bounded by # of modal opens per session.
+ */
 export function clearBridge(id: string): void {
   registry.delete(id);
 }
