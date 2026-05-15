@@ -35,6 +35,12 @@ export const zhCN: Record<string, string> = {
 
   // Hints
   hintMaxGap: "超过此秒数视为新组",
+  fieldMaxGapDesc: "两段相邻视频被视为同一组的最大间隔（秒）。",
+  fieldMaxGroupDurationDesc: "单组合并后总时长上限（秒）。0 表示不限制。",
+  fieldAllowCombinedInputDesc:
+    "允许把已经合并过的输出文件（含 _combined 后缀）作为下一轮的输入。默认关闭以避免重复处理。",
+  fieldNoBrokenSplitDesc:
+    "达到单组时长上限时不再切断当前剪辑，保留完整片段。开启可能让某些组略超时长上限。",
 
   // Options
   optionAuto: "自动",
@@ -59,6 +65,12 @@ export const zhCN: Record<string, string> = {
   btnClear: "清除",
 
   // Messages
+  fieldRequiredName: "请填写任务名称",
+  fieldRequiredSrcPath: "请选择源路径",
+  fieldRequiredDstPath: "请选择目标路径",
+  fieldRequiredSrcSource: "请选择源存储",
+  fieldRequiredDstSource: "请选择目标存储",
+  fieldRequiredCronExpr: "Cron 表达式不能为空",
   saveSuccess: "保存成功",
   deleteSuccess: "删除成功",
   errorSave: "保存失败",
@@ -82,6 +94,102 @@ export const zhCN: Record<string, string> = {
 
   // Danger zone
   labelDangerZone: "危险操作",
+
+  // Dashboard
+  dashboardTitle: "录像归并",
+  dashboardSubtitle: "行车记录仪 / 监控视频归并中枢",
+  totalSources: "源",
+  enabledSources: "已启用",
+  addSource: "+ 新增源",
+  noSources: "暂无源",
+  noSourcesAdd: "点击「+ 新增源」创建第一个归并任务",
+
+  // Source card
+  cardRunNow: "立即运行",
+  cardViewHistory: "查看历史",
+  cardStatusIdle: "空闲",
+  cardStatusRunning: "运行中",
+  cardStatusQueued: "排队",
+  cardStatusSucceeded: "已完成",
+  cardStatusFailed: "失败",
+  cardStatusCancelled: "已取消",
+  cardNoRuns: "尚未运行",
+  cardLastRun: "上次",
+  cardEta: "ETA",
+  cardGroupsDone: "已处理",
+  cardRunning: "处理中",
+  cardCancelRun: "取消",
+
+  // Settings modal / drawer
+  modalEditSource: "编辑源",
+  modalNewSource: "新建源",
+  modalHistoryTitle: "运行历史",
+  modalClose: "关闭",
+
+  // Navigation keys (legacy, preserved)
+  selectSource: "请选择一个源",
+  selectSourceDesc: "或点击「新增源」创建新任务",
+  tabSettings: "设置",
+  tabRun: "运行",
+  tabHistory: "历史",
+  newSource: "+ 新增源",
+  noSourcesDesc: "暂无归并源",
+  errorLoad: "加载失败",
+
+  // Misc
+  emptyValue: "—",
+  separatorFlow: "→",
+  separatorMeta: "·",
+  separatorLabel: ":",
+  separatorLabelValue: ": ",
+  separatorTimeRange: "~",
+  separatorWarningCountPrefix: " × ",
+  separatorWarningCountSuffix: "",
+  separatorWarningExample: "，例：",
+  separatorUnitValue: " ",
+  separatorDurationParts: " ",
+  unitByte: "B",
+  unitKilobyte: "KB",
+  unitMegabyte: "MB",
+  unitGigabyte: "GB",
+  unitTerabyte: "TB",
+  unitSecondShort: "s",
+  unitMinuteShort: "m",
+  unitHourShort: "h",
+  noHistory: "暂无运行记录",
+  noGroups: "无分组",
+  phase: "阶段",
+  progress: "进度",
+  currentFile: "当前文件",
+  okCount: "成功",
+  failedCount: "失败",
+  totalGroups: "总组数",
+  okGroups: "成功组",
+  failedGroupsLabel: "失败组",
+  groupCamera: "摄像头",
+  groupOutput: "输出",
+  groupDecision: "决策",
+  groupStatus: "状态",
+  abortLabel: "中断原因",
+  warnings: "警告",
+  warningLevelClean: "正常",
+  warningLevelWarn: "警告",
+  warningLevelSuspicious: "可疑",
+  warningLevelFatal: "致命",
+  statusQueued: "排队中",
+  statusRunning: "运行中",
+  statusSucceeded: "已完成",
+  statusFailed: "失败",
+  statusCancelled: "已取消",
+  triggerManual: "手动",
+  triggerCron2: "定时",
+  triggerWatcher2: "监听",
+  runStarted: "运行已启动",
+  runCancelled: "运行已取消",
+  errorRun: "运行失败",
+  errorCancel: "取消失败",
+  btnRunNow: "立即运行",
+  hintManualOnly: "",
 };
 
 export const enUS: Record<string, string> = {
@@ -123,6 +231,14 @@ export const enUS: Record<string, string> = {
 
   // Hints
   hintMaxGap: "Videos separated by more than this are grouped separately",
+  fieldMaxGapDesc:
+    "Max gap between two adjacent clips to still belong to the same group (seconds).",
+  fieldMaxGroupDurationDesc:
+    "Upper bound of a merged group total duration (seconds). 0 means unlimited.",
+  fieldAllowCombinedInputDesc:
+    "Allow already-merged outputs (with _combined suffix) as input for next run. Off by default to prevent re-processing.",
+  fieldNoBrokenSplitDesc:
+    "When max group duration is hit, do NOT split the current clip; keep it whole. May cause some groups to slightly exceed the limit.",
 
   // Options
   optionAuto: "Auto",
@@ -147,6 +263,12 @@ export const enUS: Record<string, string> = {
   btnClear: "Clear",
 
   // Messages
+  fieldRequiredName: "Name is required",
+  fieldRequiredSrcPath: "Source path is required",
+  fieldRequiredDstPath: "Destination path is required",
+  fieldRequiredSrcSource: "Source storage is required",
+  fieldRequiredDstSource: "Destination storage is required",
+  fieldRequiredCronExpr: "Cron expression is required",
   saveSuccess: "Saved successfully",
   deleteSuccess: "Deleted successfully",
   errorSave: "Failed to save",
@@ -170,4 +292,100 @@ export const enUS: Record<string, string> = {
 
   // Danger zone
   labelDangerZone: "Danger Zone",
+
+  // Dashboard
+  dashboardTitle: "Dashcam Archive",
+  dashboardSubtitle: "Dashcam / surveillance footage merge hub",
+  totalSources: "Sources",
+  enabledSources: "Enabled",
+  addSource: "+ Add Source",
+  noSources: "No sources",
+  noSourcesAdd: 'Click "+ Add Source" to create your first merge task',
+
+  // Source card
+  cardRunNow: "Run Now",
+  cardViewHistory: "History",
+  cardStatusIdle: "Idle",
+  cardStatusRunning: "Running",
+  cardStatusQueued: "Queued",
+  cardStatusSucceeded: "Completed",
+  cardStatusFailed: "Failed",
+  cardStatusCancelled: "Cancelled",
+  cardNoRuns: "No runs yet",
+  cardLastRun: "Last",
+  cardEta: "ETA",
+  cardGroupsDone: "Processed",
+  cardRunning: "Processing",
+  cardCancelRun: "Cancel",
+
+  // Settings modal / drawer
+  modalEditSource: "Edit Source",
+  modalNewSource: "New Source",
+  modalHistoryTitle: "Run History",
+  modalClose: "Close",
+
+  // Navigation keys (legacy, preserved)
+  selectSource: "Select a source",
+  selectSourceDesc: 'Or click "Add Source" to create a new task',
+  tabSettings: "Settings",
+  tabRun: "Run",
+  tabHistory: "History",
+  newSource: "+ Add Source",
+  noSourcesDesc: "No merge sources",
+  errorLoad: "Failed to load",
+
+  // Misc
+  emptyValue: "—",
+  separatorFlow: "→",
+  separatorMeta: "·",
+  separatorLabel: ":",
+  separatorLabelValue: ": ",
+  separatorTimeRange: "~",
+  separatorWarningCountPrefix: " × ",
+  separatorWarningCountSuffix: "",
+  separatorWarningExample: ", e.g.: ",
+  separatorUnitValue: " ",
+  separatorDurationParts: " ",
+  unitByte: "B",
+  unitKilobyte: "KB",
+  unitMegabyte: "MB",
+  unitGigabyte: "GB",
+  unitTerabyte: "TB",
+  unitSecondShort: "s",
+  unitMinuteShort: "m",
+  unitHourShort: "h",
+  noHistory: "No run history",
+  noGroups: "No groups",
+  phase: "Phase",
+  progress: "Progress",
+  currentFile: "Current file",
+  okCount: "OK",
+  failedCount: "Failed",
+  totalGroups: "Total groups",
+  okGroups: "OK groups",
+  failedGroupsLabel: "failed groups",
+  groupCamera: "Camera",
+  groupOutput: "Output",
+  groupDecision: "Decision",
+  groupStatus: "Status",
+  abortLabel: "Abort reason",
+  warnings: "Warnings",
+  warningLevelClean: "Clean",
+  warningLevelWarn: "Warn",
+  warningLevelSuspicious: "Suspicious",
+  warningLevelFatal: "Fatal",
+  statusQueued: "Queued",
+  statusRunning: "Running",
+  statusSucceeded: "Succeeded",
+  statusFailed: "Failed",
+  statusCancelled: "Cancelled",
+  triggerManual: "Manual",
+  triggerCron2: "Cron",
+  triggerWatcher2: "Watcher",
+  runStarted: "Run started",
+  runCancelled: "Run cancelled",
+  errorRun: "Run failed",
+  errorCancel: "Cancel failed",
+  btnRunNow: "Run Now",
+  hintManualOnly: "",
 };
