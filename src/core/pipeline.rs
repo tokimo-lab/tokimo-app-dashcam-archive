@@ -22,9 +22,12 @@ use tokio::{
 use crate::{
     core::{
         duration::DurationResolver,
-        encoder::{EncodeProfile, EncoderRegistry},
-        ffmpeg::{CancellationToken, FfmpegRunError, FfmpegRunner, WarningTracker},
-        grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_path},
+        encoder::{EncodeProfile, EncoderRegistry, X265_DEFAULT_CRF},
+        ffmpeg::{
+            CancellationToken, FfmpegRunError, FfmpegRunner, WarningTracker, default_concat_input_flags,
+            nvenc_concat_input_flags,
+        },
+        grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_probe},
         naming::{is_video_file, parse_filename},
         report::RunReport,
         vfs_source,
@@ -166,9 +169,12 @@ impl Pipeline {
                 if probe.broken {
                     videos.push(ScanEntry::Broken(file.path.clone()));
                 } else {
-                    videos.push(ScanEntry::Video(item_from_path(
+                    videos.push(ScanEntry::Video(item_from_probe(
                         file.path.clone(),
                         probe.duration_secs.map(secs_to_ms),
+                        probe.codec,
+                        probe.format_bps,
+                        probe.size_bytes,
                     )));
                 }
             } else {
@@ -260,11 +266,13 @@ impl Pipeline {
 
             let failure_members = group.files.iter().map(|item| item.path.clone()).collect::<Vec<_>>();
             let mut fallback_attempted = false;
-            let (result, bytes_in) = if group.files.len() == 1 && runner.available() {
+            let direct_input_allowed = group.files.len() == 1
+                && runner.available()
+                && !matches!(source.encoder.as_str(), "nvenc-h265" | "x265-veryslow");
+            let (result, bytes_in) = if direct_input_allowed {
                 let item = &group.files[0];
                 let file_size = file_size_map.get(&item.path).copied().unwrap_or(0);
-                let direct_result =
-                    try_direct_input(&src_vfs, item, file_size, &local_out, &source.encoder, cancel.clone()).await;
+                let direct_result = try_direct_input(&src_vfs, item, file_size, &local_out, cancel.clone()).await;
                 match direct_result {
                     Ok(r) => (Ok(r), file_size as i64),
                     Err(ref e) if e.to_string().contains("cancelled") => {
@@ -276,7 +284,7 @@ impl Pipeline {
                         let bsz = sum_file_sizes(&inputs).unwrap_or(0);
                         let fallback = if runner.available() {
                             fallback_attempted = true;
-                            run_with_encoder(&runner, &source, &inputs, &local_out, cancel.clone())
+                            run_with_encoder(&runner, &source, &group.files, &inputs, &local_out, cancel.clone())
                                 .await
                                 .map(|(t, _)| (t, true))
                         } else {
@@ -289,7 +297,7 @@ impl Pipeline {
                 let inputs = stage_group_files(&src_vfs, &group.files, &group_stage).await?;
                 let bsz = sum_file_sizes(&inputs).unwrap_or(0);
                 let r = if runner.available() {
-                    run_with_encoder(&runner, &source, &inputs, &local_out, cancel.clone()).await
+                    run_with_encoder(&runner, &source, &group.files, &inputs, &local_out, cancel.clone()).await
                 } else {
                     Err(anyhow::anyhow!("ffmpeg binary is unavailable"))
                 };
@@ -849,9 +857,120 @@ async fn post_validate_output(
     Ok(())
 }
 
+const H264_TARGET_RATIO: f64 = 0.65;
+
+fn profile_for_source(source: &sources::Model, group_files: &[crate::core::grouping::VideoItem]) -> EncodeProfile {
+    match source.encoder.as_str() {
+        "nvenc-h265" => {
+            let base =
+                nvenc_profile_for_camera(group_files.first().map(|item| item.camera.as_str()).unwrap_or_default());
+            h264_group_input_bps(group_files)
+                .map_or(base.clone(), |input_bps| derive_h264_nvenc_profile(&base, input_bps))
+        }
+        "x265-veryslow" => EncodeProfile {
+            crf: x265_crf_from_encoder_params(&source.encoder_params),
+            ..EncodeProfile::default()
+        },
+        _ => EncodeProfile::default(),
+    }
+}
+
+fn nvenc_profile_for_camera(camera: &str) -> EncodeProfile {
+    let mut profile = EncodeProfile::default();
+    match camera {
+        "AA" => {
+            profile.bitrate = "8M".to_string();
+            profile.maxrate = "12M".to_string();
+            profile.bufsize = "16M".to_string();
+        }
+        "AB" | "AC" => {
+            profile.bitrate = "3M".to_string();
+            profile.maxrate = "5M".to_string();
+            profile.bufsize = "8M".to_string();
+        }
+        _ => {}
+    }
+    profile
+}
+
+fn h264_group_input_bps(group_files: &[crate::core::grouping::VideoItem]) -> Option<i64> {
+    if group_files.is_empty()
+        || group_files.iter().any(|item| {
+            !item
+                .codec
+                .as_deref()
+                .is_some_and(|codec| codec.eq_ignore_ascii_case("h264"))
+        })
+    {
+        return None;
+    }
+
+    let mut total_size_bytes = 0_i128;
+    let mut total_duration_ms = 0_i128;
+    for item in group_files {
+        let Some(size_bytes) = item.size_bytes.filter(|value| *value > 0) else {
+            continue;
+        };
+        let Some(duration_ms) = item.duration_ms.filter(|value| *value > 0) else {
+            continue;
+        };
+        total_size_bytes = total_size_bytes.checked_add(i128::from(size_bytes))?;
+        total_duration_ms = total_duration_ms.checked_add(i128::from(duration_ms))?;
+    }
+
+    if total_duration_ms <= 0 {
+        return None;
+    }
+
+    let bps = total_size_bytes.checked_mul(8)?.checked_mul(1_000)? / total_duration_ms;
+    i64::try_from(bps).ok()
+}
+
+fn derive_h264_nvenc_profile(default_profile: &EncodeProfile, input_bps: i64) -> EncodeProfile {
+    let target_from_input = (input_bps as f64 * H264_TARGET_RATIO) as i64;
+    let default_target = parse_bps(&default_profile.bitrate);
+    let target = default_target.map_or(target_from_input, |default_bps| default_bps.min(target_from_input));
+    let default_maxrate = parse_bps(&default_profile.maxrate);
+    let maxrate = default_maxrate.map_or(input_bps, |default_bps| default_bps.min(input_bps));
+    let bufsize = target.saturating_mul(2).max(maxrate);
+
+    EncodeProfile {
+        bitrate: target.to_string(),
+        maxrate: maxrate.to_string(),
+        bufsize: bufsize.to_string(),
+        ..default_profile.clone()
+    }
+}
+
+fn parse_bps(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (number, multiplier) = match trimmed.as_bytes().last().copied() {
+        Some(b'm' | b'M') => (&trimmed[..trimmed.len() - 1], 1_000_000_i64),
+        Some(b'k' | b'K') => (&trimmed[..trimmed.len() - 1], 1_000_i64),
+        _ => (trimmed, 1_i64),
+    };
+    number.trim().parse::<i64>().ok()?.checked_mul(multiplier)
+}
+
+fn x265_crf_from_encoder_params(params: &serde_json::Value) -> u8 {
+    params
+        .get("x265_crf")
+        .and_then(|value| match value {
+            serde_json::Value::Number(number) => number.as_u64(),
+            serde_json::Value::String(text) => text.trim().parse::<u64>().ok(),
+            _ => None,
+        })
+        .and_then(|value| u8::try_from(value).ok())
+        .unwrap_or(X265_DEFAULT_CRF)
+}
+
 async fn run_with_encoder(
     runner: &FfmpegRunner,
     source: &sources::Model,
+    group_files: &[crate::core::grouping::VideoItem],
     inputs: &[PathBuf],
     out: &Path,
     cancel: CancellationToken,
@@ -872,9 +991,20 @@ async fn run_with_encoder(
                     .map(|tracker| (tracker, true))
                     .map_err(mark_internal_fallback_attempted);
             };
-            let profile = EncodeProfile::default();
+            let profile = profile_for_source(source, group_files);
+            let input_flags = if source.encoder == "nvenc-h265" {
+                nvenc_concat_input_flags()
+            } else {
+                default_concat_input_flags()
+            };
             match runner
-                .concat_encode(inputs, out, &encoder.encode_args(&profile), cancel.clone())
+                .concat_encode(
+                    inputs,
+                    out,
+                    &encoder.encode_args(&profile),
+                    &input_flags,
+                    cancel.clone(),
+                )
                 .await
             {
                 Ok(tracker) => Ok((tracker, false)),
@@ -910,29 +1040,11 @@ async fn try_direct_input(
     item: &crate::core::grouping::VideoItem,
     file_size: u64,
     local_out: &Path,
-    encoder: &str,
     cancel: CancellationToken,
 ) -> anyhow::Result<(WarningTracker, bool)> {
     let read_at = src_vfs.to_read_at(&item.path).await;
     let filename_hint = item.path.file_name().map(|n| n.to_string_lossy().into_owned());
     let direct_input = FfmpegDirectInput::from_read_at(read_at, file_size, filename_hint, Some(32 * 1024 * 1024));
-
-    let profile = EncodeProfile::default();
-    let (video_codec, audio_codec, preset, crf): (String, String, String, Option<u32>) = match encoder {
-        "nvenc-h265" => (
-            "hevc_nvenc".to_string(),
-            "copy".to_string(),
-            profile.preset.clone(),
-            None,
-        ),
-        "x265-veryslow" => (
-            "libx265".to_string(),
-            "copy".to_string(),
-            "veryslow".to_string(),
-            Some(u32::from(profile.crf)),
-        ),
-        _ => ("copy".to_string(), "copy".to_string(), "medium".to_string(), None),
-    };
 
     let ffmpeg_cancel = ffmpeg_cancellation_token();
     let dashcam_cancel_watcher = cancel.clone();
@@ -956,10 +1068,8 @@ async fn try_direct_input(
         let opts = FfmpegTranscodeOptions {
             input: PathBuf::from("direct"),
             output: local_out_buf,
-            video_codec,
-            audio_codec,
-            preset,
-            crf,
+            video_codec: "copy".to_string(),
+            audio_codec: "copy".to_string(),
             cancel: Some(ffmpeg_cancel),
             direct_input: Some(direct_input),
             ..Default::default()
@@ -982,5 +1092,84 @@ async fn try_direct_input(
             tracker.set_command("direct_input", &[]);
             Ok((tracker, false))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_h264_nvenc_profile_from_input_bitrate() {
+        let profile = derive_h264_nvenc_profile(&EncodeProfile::default(), 10_000_000);
+
+        assert_eq!(profile.cq, 32);
+        assert_eq!(profile.preset, "p7");
+        assert_eq!(profile.bitrate, "5000000");
+        assert_eq!(profile.maxrate, "8000000");
+        assert_eq!(profile.bufsize, "10000000");
+    }
+
+    #[test]
+    fn derives_camera_profile_with_decimal_bps_strings() {
+        let profile = derive_h264_nvenc_profile(&nvenc_profile_for_camera("AC"), 4_000_000);
+
+        assert_eq!(profile.bitrate, "2600000");
+        assert_eq!(profile.maxrate, "4000000");
+        assert_eq!(profile.bufsize, "5200000");
+    }
+
+    #[test]
+    fn h264_group_input_bps_uses_homogeneous_weighted_average() {
+        let group_files = vec![
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000000_a.mp4"),
+                Some(1_000),
+                Some("h264".to_string()),
+                Some(8_000_000),
+                Some(1_000_000),
+            ),
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000001_b.mp4"),
+                Some(3_000),
+                Some("H264".to_string()),
+                Some(24_000_000),
+                Some(9_000_000),
+            ),
+        ];
+
+        assert_eq!(h264_group_input_bps(&group_files), Some(20_000_000));
+    }
+
+    #[test]
+    fn h264_group_input_bps_returns_none_for_mixed_codecs() {
+        let group_files = vec![
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000000_a.mp4"),
+                Some(1_000),
+                Some("h264".to_string()),
+                Some(8_000_000),
+                Some(1_000_000),
+            ),
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000001_b.mp4"),
+                Some(1_000),
+                Some("hevc".to_string()),
+                Some(8_000_000),
+                Some(1_000_000),
+            ),
+        ];
+
+        assert_eq!(h264_group_input_bps(&group_files), None);
+    }
+
+    #[test]
+    fn parses_x265_crf_override_number_or_string() {
+        assert_eq!(x265_crf_from_encoder_params(&serde_json::json!({"x265_crf": 23})), 23);
+        assert_eq!(x265_crf_from_encoder_params(&serde_json::json!({"x265_crf": "24"})), 24);
+        assert_eq!(
+            x265_crf_from_encoder_params(&serde_json::json!({"x265_crf": "bad"})),
+            X265_DEFAULT_CRF
+        );
     }
 }

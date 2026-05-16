@@ -13,6 +13,8 @@ use serde::Serialize;
 
 use crate::core::ffmpeg::FfmpegPaths;
 
+pub const X265_DEFAULT_CRF: u8 = 26;
+
 #[derive(Debug, Clone)]
 pub struct EncodeProfile {
     pub cq: u8,
@@ -30,7 +32,7 @@ impl Default for EncodeProfile {
             maxrate: "8M".to_string(),
             bufsize: "10M".to_string(),
             preset: "p7".to_string(),
-            crf: 26,
+            crf: X265_DEFAULT_CRF,
         }
     }
 }

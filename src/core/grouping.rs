@@ -16,6 +16,9 @@ pub struct VideoItem {
     pub end_datetime: Option<DateTime<FixedOffset>>,
     pub rest_of_filename: Option<String>,
     pub duration_ms: Option<i64>,
+    pub codec: Option<String>,
+    pub format_bps: Option<i64>,
+    pub size_bytes: Option<i64>,
     pub default_max_time_difference: Option<u64>,
 }
 
@@ -47,8 +50,25 @@ pub fn item_from_path(path: PathBuf, duration_ms: Option<i64>) -> VideoItem {
         end_datetime,
         rest_of_filename,
         duration_ms,
+        codec: None,
+        format_bps: None,
+        size_bytes: None,
         default_max_time_difference: parsed.default_max_time_difference,
     }
+}
+
+pub fn item_from_probe(
+    path: PathBuf,
+    duration_ms: Option<i64>,
+    codec: Option<String>,
+    format_bps: Option<i64>,
+    size_bytes: Option<i64>,
+) -> VideoItem {
+    let mut item = item_from_path(path, duration_ms);
+    item.codec = codec;
+    item.format_bps = format_bps;
+    item.size_bytes = size_bytes;
+    item
 }
 
 pub fn group_by_camera(entries: Vec<ScanEntry>) -> BTreeMap<String, Vec<ScanEntry>> {

@@ -405,8 +405,15 @@ impl FfmpegRunner {
         output: &Path,
         cancel: CancellationToken,
     ) -> anyhow::Result<WarningTracker> {
-        self.run_concat(inputs, output, &["-c".to_string(), "copy".to_string()], cancel)
-            .await
+        let input_flags = default_concat_input_flags();
+        self.run_concat(
+            inputs,
+            output,
+            &["-c".to_string(), "copy".to_string()],
+            &input_flags,
+            cancel,
+        )
+        .await
     }
 
     pub async fn concat_encode(
@@ -414,12 +421,13 @@ impl FfmpegRunner {
         inputs: &[PathBuf],
         output: &Path,
         encode_args: &[String],
+        input_flags: &[String],
         cancel: CancellationToken,
     ) -> anyhow::Result<WarningTracker> {
         let mut args = encode_args.to_vec();
         args.push("-c:a".to_string());
         args.push("copy".to_string());
-        self.run_concat(inputs, output, &args, cancel).await
+        self.run_concat(inputs, output, &args, input_flags, cancel).await
     }
 
     async fn run_concat(
@@ -427,6 +435,7 @@ impl FfmpegRunner {
         inputs: &[PathBuf],
         output: &Path,
         codec_args: &[String],
+        input_flags: &[String],
         cancel: CancellationToken,
     ) -> anyhow::Result<WarningTracker> {
         let ffmpeg = self
@@ -460,15 +469,16 @@ impl FfmpegRunner {
             "-nostats".to_string(),
             "-loglevel".to_string(),
             "warning".to_string(),
-            "-fflags".to_string(),
-            "+genpts".to_string(),
+        ];
+        args.extend_from_slice(input_flags);
+        args.extend([
             "-f".to_string(),
             "concat".to_string(),
             "-safe".to_string(),
             "0".to_string(),
             "-i".to_string(),
             list_arg,
-        ];
+        ]);
         args.extend_from_slice(codec_args);
         args.push("-movflags".to_string());
         args.push("+faststart".to_string());
@@ -562,6 +572,21 @@ impl StderrTail {
     fn as_text(&self) -> String {
         self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
     }
+}
+
+pub fn default_concat_input_flags() -> Vec<String> {
+    vec!["-fflags".to_string(), "+genpts".to_string()]
+}
+
+pub fn nvenc_concat_input_flags() -> Vec<String> {
+    vec![
+        "-hwaccel".to_string(),
+        "cuda".to_string(),
+        "-fflags".to_string(),
+        "+genpts+igndts".to_string(),
+        "-err_detect".to_string(),
+        "ignore_err".to_string(),
+    ]
 }
 
 fn is_ffmpeg_progress_line(line: &str) -> bool {
