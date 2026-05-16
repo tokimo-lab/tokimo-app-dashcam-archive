@@ -226,17 +226,21 @@ impl FfmpegRunner {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("output path has no parent"))?;
         tokio::fs::create_dir_all(parent).await?;
-        let list_path = output.with_extension("mp4.concat_list.txt");
+        // concat demuxer resolves list entries relative to the list file parent, so paths must be absolute
+        let list_path_rel = output.with_extension("mp4.concat_list.txt");
+        let list_path = std::path::absolute(&list_path_rel).unwrap_or_else(|_| list_path_rel.clone());
         let mut list = String::new();
         for input in inputs {
-            if writeln!(list, "file '{}'", input.to_string_lossy().replace('\'', "'\\''")).is_err() {
+            let abs = std::path::absolute(input).unwrap_or_else(|_| input.clone());
+            if writeln!(list, "file '{}'", abs.to_string_lossy().replace('\'', "'\\''")).is_err() {
                 anyhow::bail!("failed to build concat list");
             }
         }
         tokio::fs::write(&list_path, list).await?;
 
         let list_arg = list_path.to_string_lossy().to_string();
-        let output_arg = output.to_string_lossy().to_string();
+        let output_abs = std::path::absolute(output).unwrap_or_else(|_| output.to_path_buf());
+        let output_arg = output_abs.to_string_lossy().to_string();
         let mut args = vec![
             "-y".to_string(),
             "-progress".to_string(),
