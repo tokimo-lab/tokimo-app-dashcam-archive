@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
-    fmt::Write as _,
+    error::Error,
+    fmt::{self, Write as _},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -75,20 +76,60 @@ impl FfmpegPaths {
     }
 }
 
+const WARN_LOG_EXAMPLES_PER_CATEGORY: usize = 5;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct FfmpegWarning {
     pub category: String,
     pub message: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct FfmpegWarningSummary {
+    pub category: String,
+    pub count: usize,
+    pub first_example: Option<String>,
+    pub examples: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WarningTracker {
     warnings: Vec<FfmpegWarning>,
+    unmatched_error_lines: Vec<String>,
+    command: Vec<String>,
+    mode: String,
+    was_fallback: bool,
     last_out_time_ms: Option<i64>,
     last_time: Option<String>,
 }
 
 impl WarningTracker {
+    pub fn set_command(&mut self, program: &str, args: &[&str]) {
+        self.command = std::iter::once(program.to_string())
+            .chain(args.iter().map(|arg| (*arg).to_string()))
+            .collect();
+    }
+
+    pub fn set_mode(&mut self, mode: impl Into<String>, was_fallback: bool) {
+        self.mode = mode.into();
+        self.was_fallback = was_fallback;
+    }
+
+    pub fn mark_fallback_attempted(&mut self) {
+        self.was_fallback = true;
+    }
+
+    pub fn was_fallback(&self) -> bool {
+        self.was_fallback
+    }
+
+    pub fn add_warning(&mut self, category: impl Into<String>, message: impl Into<String>) {
+        self.warnings.push(FfmpegWarning {
+            category: category.into(),
+            message: message.into(),
+        });
+    }
+
     pub fn observe(&mut self, line: &str) {
         if let Some(value) = line.strip_prefix("out_time_ms=") {
             self.last_out_time_ms = value.trim().parse::<i64>().ok();
@@ -139,24 +180,154 @@ impl WarningTracker {
                 .build()
                 .is_ok_and(|re| re.is_match(line))
             {
-                self.warnings.push(FfmpegWarning {
-                    category: category.to_string(),
-                    message: line.to_string(),
-                });
+                self.add_warning(category.to_string(), line.to_string());
                 return;
             }
         }
         let lower = line.to_ascii_lowercase();
         if lower.contains("error") && lower.contains('@') && !lower.contains("frame=") {
-            self.warnings.push(FfmpegWarning {
-                category: "other_error".to_string(),
-                message: line.to_string(),
-            });
+            self.add_warning("other_error", line.to_string());
+            if self.unmatched_error_lines.len() < WARN_LOG_EXAMPLES_PER_CATEGORY {
+                self.unmatched_error_lines.push(line.to_string());
+            }
         }
     }
-    pub fn warnings(&self) -> &[FfmpegWarning] {
-        &self.warnings
+
+    pub fn warning_summaries(&self) -> Vec<FfmpegWarningSummary> {
+        let mut summaries = Vec::<FfmpegWarningSummary>::new();
+        for warning in &self.warnings {
+            let summary_index = summaries
+                .iter()
+                .position(|summary| summary.category == warning.category);
+            let entry = if let Some(index) = summary_index {
+                &mut summaries[index]
+            } else {
+                summaries.push(FfmpegWarningSummary {
+                    category: warning.category.clone(),
+                    count: 0,
+                    first_example: None,
+                    examples: Vec::new(),
+                });
+                let index = summaries.len() - 1;
+                &mut summaries[index]
+            };
+            entry.count += 1;
+            if entry.first_example.is_none() {
+                entry.first_example = Some(warning.message.clone());
+            }
+            if entry.examples.len() < WARN_LOG_EXAMPLES_PER_CATEGORY {
+                entry.examples.push(warning.message.clone());
+            }
+        }
+        summaries
     }
+
+    pub fn format_warn_log(&self, output: &Path, status: &str, reason: Option<&str>) -> String {
+        let cmd = if self.command.is_empty() {
+            "unknown".to_string()
+        } else {
+            self.command.join(" ")
+        };
+        let mode = if self.mode.is_empty() {
+            "unknown"
+        } else {
+            self.mode.as_str()
+        };
+        format!(
+            "output: {}\ncmd: {}\nmode: {}{}\n\n{}",
+            output.display(),
+            cmd,
+            mode,
+            if self.was_fallback { " (fallback)" } else { "" },
+            self.format_detail(status, reason)
+        )
+    }
+
+    fn format_detail(&self, status: &str, reason: Option<&str>) -> String {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        for summary in self.warning_summaries() {
+            if warning_severity(&summary.category) == "error" {
+                push_summary(&mut errors, &summary);
+            } else {
+                push_summary(&mut warnings, &summary);
+            }
+        }
+        if let Some(reason) = reason {
+            errors.insert(0, format!("- fatal: {reason}"));
+        }
+        if !self.unmatched_error_lines.is_empty() {
+            errors.push("- unmatched_error_lines:".to_string());
+            for line in &self.unmatched_error_lines {
+                errors.push(format!("  - {line}"));
+            }
+        }
+
+        let mut info = vec![format!("- status: {status}")];
+        if self.was_fallback {
+            info.push("- fallback: true".to_string());
+        }
+        if let Some(value) = self.last_out_time_ms {
+            info.push(format!("- last_out_time_ms: {value}"));
+        }
+        if let Some(value) = &self.last_time {
+            info.push(format!("- last_time: {value}"));
+        }
+
+        let mut text = String::new();
+        append_bucket(&mut text, "error", &errors);
+        append_bucket(&mut text, "warning", &warnings);
+        append_bucket(&mut text, "info", &info);
+        text
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FfmpegRunError {
+    pub message: String,
+    pub tracker: WarningTracker,
+}
+
+impl fmt::Display for FfmpegRunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl Error for FfmpegRunError {}
+
+fn warning_severity(category: &str) -> &'static str {
+    if category == "other_error" { "error" } else { "warning" }
+}
+
+fn warning_threshold(category: &str) -> Option<usize> {
+    match category {
+        "corrupt_frame" | "missing_ref" | "missing_picture" | "non_existing_pps" | "application_invalid" => Some(1),
+        "concealing" | "decode_error" | "slice_header" | "mb_decode" | "invalid_dts" | "nonmono_dts" | "guess_pts"
+        | "bytestream" | "co_located_poc" => Some(8),
+        _ => None,
+    }
+}
+
+fn push_summary(lines: &mut Vec<String>, summary: &FfmpegWarningSummary) {
+    let suspicious = warning_threshold(&summary.category).is_some_and(|threshold| summary.count >= threshold);
+    let marker = if suspicious { " suspicious" } else { "" };
+    lines.push(format!("- {}: {}{}", summary.category, summary.count, marker));
+    for example in &summary.examples {
+        lines.push(format!("  - {example}"));
+    }
+}
+
+fn append_bucket(text: &mut String, name: &str, lines: &[String]) {
+    let _ = writeln!(text, "[{name}]");
+    if lines.is_empty() {
+        let _ = writeln!(text, "- none");
+    } else {
+        for line in lines {
+            let _ = writeln!(text, "{line}");
+        }
+    }
+    let _ = writeln!(text);
 }
 
 #[derive(Clone, Default)]
@@ -287,6 +458,7 @@ impl FfmpegRunner {
         });
         let mut lines = BufReader::new(stderr).lines();
         let mut tracker = WarningTracker::default();
+        tracker.set_command(program, args);
         let mut stderr_tail = StderrTail::default();
         loop {
             tokio::select! {
@@ -302,14 +474,22 @@ impl FfmpegRunner {
                 () = tokio::time::sleep(Duration::from_millis(250)), if cancel.is_cancelled() => {
                     let _ = child.kill().await;
                     let _ = stdout_drain.await;
-                    anyhow::bail!("ffmpeg cancelled");
+                    return Err(FfmpegRunError {
+                        message: "ffmpeg cancelled".to_string(),
+                        tracker,
+                    }
+                    .into());
                 }
             }
         }
         let status = child.wait().await?;
         let _ = stdout_drain.await;
         if !status.success() {
-            anyhow::bail!("ffmpeg exited {status}\n--- stderr tail ---\n{}", stderr_tail.as_text());
+            return Err(FfmpegRunError {
+                message: format!("ffmpeg exited {status}\n--- stderr tail ---\n{}", stderr_tail.as_text()),
+                tracker,
+            }
+            .into());
         }
         Ok(tracker)
     }

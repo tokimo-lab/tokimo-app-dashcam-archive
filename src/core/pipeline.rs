@@ -23,7 +23,7 @@ use crate::{
     core::{
         duration::DurationResolver,
         encoder::{EncodeProfile, EncoderRegistry},
-        ffmpeg::{CancellationToken, FfmpegRunner, WarningTracker},
+        ffmpeg::{CancellationToken, FfmpegRunError, FfmpegRunner, WarningTracker},
         grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_path},
         naming::{is_video_file, parse_filename},
         report::RunReport,
@@ -241,16 +241,15 @@ impl Pipeline {
             .await?;
 
             let had_broken_warnings = !broken_paths.is_empty();
-            for broken_path in broken_paths.drain(..) {
-                WarningsRepo::add(
-                    &self.db,
-                    group_model.id,
-                    "broken_file_skipped".to_string(),
-                    1,
-                    Some(format!("broken file skipped: {broken_path}")),
-                )
-                .await?;
-            }
+            let group_warning_examples = broken_paths
+                .drain(..)
+                .map(|broken_path| {
+                    (
+                        "broken_file_skipped".to_string(),
+                        format!("broken file skipped: {broken_path}"),
+                    )
+                })
+                .collect::<Vec<_>>();
 
             let group_stage = staging.join(format!("group-{idx}"));
             tokio::fs::create_dir_all(&group_stage).await?;
@@ -260,6 +259,7 @@ impl Pipeline {
             let end_dt = group.files.last().and_then(|f| parse_filename(&f.path).timestamp);
 
             let mut failure_inputs = Vec::new();
+            let mut fallback_attempted = false;
             let (result, bytes_in) = if group.files.len() == 1 && runner.available() {
                 let item = &group.files[0];
                 let file_size = file_size_map.get(&item.path).copied().unwrap_or(0);
@@ -276,6 +276,7 @@ impl Pipeline {
                         let bsz = sum_file_sizes(&inputs).unwrap_or(0);
                         failure_inputs = inputs.clone();
                         let fallback = if runner.available() {
+                            fallback_attempted = true;
                             run_with_encoder(&runner, &source, &inputs, &local_out, cancel.clone())
                                 .await
                                 .map(|(t, _)| (t, true))
@@ -299,25 +300,33 @@ impl Pipeline {
             total_bytes_in += bytes_in;
 
             match result {
-                Ok((tracker, fallback_used)) => {
-                    let warnings = tracker.warnings();
-                    for warning in warnings {
+                Ok((mut tracker, fallback_used)) => {
+                    tracker.set_mode(warn_log_mode_for_decision(decision).to_string(), fallback_used);
+                    for (category, message) in &group_warning_examples {
+                        tracker.add_warning(category.clone(), message.clone());
+                    }
+                    if fallback_used {
+                        tracker.add_warning("fallback_used", "ffmpeg fallback path used");
+                    }
+                    let warning_summaries = tracker.warning_summaries();
+                    for warning in &warning_summaries {
                         WarningsRepo::add(
                             &self.db,
                             group_model.id,
                             warning.category.clone(),
-                            1,
-                            Some(warning.message.clone()),
+                            i32::try_from(warning.count).unwrap_or(i32::MAX),
+                            warning.first_example.clone(),
                         )
                         .await?;
                     }
                     upload_local_file(&dst_vfs, &local_out, &out_vfs).await?;
-                    let warning_level = if fallback_used || !warnings.is_empty() || had_broken_warnings {
+                    let warning_level = if fallback_used || !warning_summaries.is_empty() || had_broken_warnings {
                         "warn"
                     } else {
                         "clean"
                     };
                     let status = if fallback_used { "downgraded" } else { "ok" };
+                    upload_warn_log(&dst_vfs, &out_vfs, &tracker, status, None).await?;
                     if fallback_used {
                         downgraded_count += 1;
                     } else {
@@ -344,7 +353,30 @@ impl Pipeline {
                 }
                 Err(error) => {
                     failed_count += 1;
-                    upload_failure_log(&dst_vfs, &out_vfs, &failure_inputs, &error.to_string()).await?;
+                    let reason = error.to_string();
+                    let ffmpeg_error = error.downcast_ref::<FfmpegRunError>();
+                    let internal_fallback_attempted =
+                        ffmpeg_error.map(|err| err.tracker.was_fallback()).unwrap_or(false);
+                    let mut tracker = ffmpeg_error.map(|err| err.tracker.clone()).unwrap_or_default();
+                    tracker.set_mode(
+                        warn_log_mode_for_decision(decision).to_string(),
+                        fallback_attempted || internal_fallback_attempted,
+                    );
+                    for (category, message) in &group_warning_examples {
+                        tracker.add_warning(category.clone(), message.clone());
+                    }
+                    for warning in tracker.warning_summaries() {
+                        WarningsRepo::add(
+                            &self.db,
+                            group_model.id,
+                            warning.category,
+                            i32::try_from(warning.count).unwrap_or(i32::MAX),
+                            warning.first_example,
+                        )
+                        .await?;
+                    }
+                    upload_warn_log(&dst_vfs, &out_vfs, &tracker, "failed", Some(&reason)).await?;
+                    upload_failure_log(&dst_vfs, &out_vfs, &failure_inputs, &reason).await?;
                     MergeRunsRepo::update_group(
                         &self.db,
                         group_model.id,
@@ -356,7 +388,7 @@ impl Pipeline {
                             duration_secs: None,
                             bytes_in: Some(bytes_in),
                             bytes_out: None,
-                            abort_reason: Some(error.to_string()),
+                            abort_reason: Some(reason),
                         },
                     )
                     .await?;
@@ -662,6 +694,25 @@ async fn output_vfs_dir_for_group(
     Ok(dir)
 }
 
+async fn upload_warn_log(
+    dst_vfs: &Vfs,
+    out: &Path,
+    tracker: &WarningTracker,
+    status: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<()> {
+    let log_path = warn_log_path(out);
+    ensure_vfs_parent(dst_vfs, &log_path).await?;
+    dst_vfs
+        .put(&log_path, tracker.format_warn_log(out, status, reason).into_bytes())
+        .await?;
+    Ok(())
+}
+
+fn warn_log_path(out: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.warn.log", out.to_string_lossy()))
+}
+
 async fn upload_failure_log(dst_vfs: &Vfs, out: &Path, inputs: &[PathBuf], reason: &str) -> anyhow::Result<()> {
     let mut text = format!(
         "merge failed: {}\nreason: {reason}\nmembers: {}\n",
@@ -721,6 +772,13 @@ fn decision_for_encoder(encoder: &str, input_count: usize) -> &'static str {
     }
 }
 
+fn warn_log_mode_for_decision(decision: &str) -> &'static str {
+    match decision {
+        "encode_nvenc" | "encode_x265" => "compress",
+        _ => "concat_copy",
+    }
+}
+
 async fn run_with_encoder(
     runner: &FfmpegRunner,
     source: &sources::Model,
@@ -741,7 +799,8 @@ async fn run_with_encoder(
                 return runner
                     .concat_copy(inputs, out, cancel)
                     .await
-                    .map(|tracker| (tracker, true));
+                    .map(|tracker| (tracker, true))
+                    .map_err(mark_internal_fallback_attempted);
             };
             let profile = EncodeProfile::default();
             match runner
@@ -750,7 +809,10 @@ async fn run_with_encoder(
             {
                 Ok(tracker) => Ok((tracker, false)),
                 Err(error) if !error.to_string().contains("cancelled") => {
-                    let tracker = runner.concat_copy(inputs, out, cancel).await?;
+                    let tracker = runner
+                        .concat_copy(inputs, out, cancel)
+                        .await
+                        .map_err(mark_internal_fallback_attempted)?;
                     Ok((tracker, true))
                 }
                 Err(error) => Err(error),
@@ -760,6 +822,16 @@ async fn run_with_encoder(
             .concat_copy(inputs, out, cancel)
             .await
             .map(|tracker| (tracker, false)),
+    }
+}
+
+fn mark_internal_fallback_attempted(error: anyhow::Error) -> anyhow::Error {
+    match error.downcast::<FfmpegRunError>() {
+        Ok(mut error) => {
+            error.tracker.mark_fallback_attempted();
+            error.into()
+        }
+        Err(error) => error,
     }
 }
 
@@ -835,6 +907,10 @@ async fn try_direct_input(
             }
             Err(anyhow::anyhow!("direct transcode failed: {ffmpeg_err}"))
         }
-        Ok(Ok(())) => Ok((WarningTracker::default(), false)),
+        Ok(Ok(())) => {
+            let mut tracker = WarningTracker::default();
+            tracker.set_command("direct_input", &[]);
+            Ok((tracker, false))
+        }
     }
 }
