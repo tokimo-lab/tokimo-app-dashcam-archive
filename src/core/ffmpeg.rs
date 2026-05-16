@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt::Write as _,
     path::{Path, PathBuf},
     process::Stdio,
@@ -11,7 +12,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{self, AsyncBufReadExt, BufReader},
     process::Command,
 };
 
@@ -264,28 +265,148 @@ impl FfmpegRunner {
 
     async fn run(&self, program: &str, args: &[&str], cancel: CancellationToken) -> anyhow::Result<WarningTracker> {
         let mut command = Command::new(program);
-        command.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+        command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
         self.paths.apply_library_env(&mut command);
         let mut child = command.spawn()?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("ffmpeg stdout unavailable"))?;
         let stderr = child
             .stderr
             .take()
             .ok_or_else(|| anyhow::anyhow!("ffmpeg stderr unavailable"))?;
+        let stdout_drain = tokio::spawn(async move {
+            let mut stdout = stdout;
+            let mut sink = io::sink();
+            io::copy(&mut stdout, &mut sink).await
+        });
         let mut lines = BufReader::new(stderr).lines();
         let mut tracker = WarningTracker::default();
+        let mut stderr_tail = StderrTail::default();
         loop {
             tokio::select! {
-                line = lines.next_line() => match line? { Some(line) => tracker.observe(&line), None => break },
+                line = lines.next_line() => match line? {
+                    Some(line) => {
+                        tracker.observe(&line);
+                        if !is_ffmpeg_progress_line(&line) {
+                            stderr_tail.push(line);
+                        }
+                    }
+                    None => break,
+                },
                 () = tokio::time::sleep(Duration::from_millis(250)), if cancel.is_cancelled() => {
                     let _ = child.kill().await;
+                    let _ = stdout_drain.await;
                     anyhow::bail!("ffmpeg cancelled");
                 }
             }
         }
         let status = child.wait().await?;
+        let _ = stdout_drain.await;
         if !status.success() {
-            anyhow::bail!("ffmpeg exited with {status}");
+            anyhow::bail!("ffmpeg exited {status}\n--- stderr tail ---\n{}", stderr_tail.as_text());
         }
         Ok(tracker)
+    }
+}
+
+const STDERR_TAIL_MAX_BYTES: usize = 3 * 1024;
+const STDERR_TAIL_MAX_LINES: usize = 100;
+
+#[derive(Default)]
+struct StderrTail {
+    lines: VecDeque<String>,
+    bytes: usize,
+}
+
+impl StderrTail {
+    fn push(&mut self, line: String) {
+        self.bytes += line.len() + 1;
+        self.lines.push_back(line);
+        while self.bytes > STDERR_TAIL_MAX_BYTES || self.lines.len() > STDERR_TAIL_MAX_LINES {
+            if let Some(line) = self.lines.pop_front() {
+                self.bytes = self.bytes.saturating_sub(line.len() + 1);
+            } else {
+                self.bytes = 0;
+                break;
+            }
+        }
+    }
+
+    fn as_text(&self) -> String {
+        self.lines.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+}
+
+fn is_ffmpeg_progress_line(line: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "frame=",
+        "fps=",
+        "stream_",
+        "out_time_ms=",
+        "out_time=",
+        "progress=",
+        "speed=",
+        "bitrate=",
+        "total_size=",
+        "dup_frames=",
+        "drop_frames=",
+        "time=",
+    ];
+    let trimmed = line.trim_start();
+    PREFIXES.iter().any(|prefix| trimmed.starts_with(prefix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn nonzero_error_contains_bounded_stderr_tail() {
+        let runner = FfmpegRunner::new(FfmpegPaths::default());
+        let err = runner
+            .run(
+                "/bin/sh",
+                &[
+                    "-c",
+                    r#"i=0; while [ "$i" -lt 180 ]; do i=$((i + 1)); printf 'stderr-line-%03d abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n' "$i" >&2; done; exit 254"#,
+                ],
+                CancellationToken::default(),
+            )
+            .await
+            .expect_err("ffmpeg command should fail");
+        let message = err.to_string();
+        let prefix = "ffmpeg exited exit status: 254\n--- stderr tail ---\n";
+        assert!(message.starts_with(prefix), "unexpected error prefix: {message}");
+        let tail = &message[prefix.len()..];
+        assert!(tail.contains("stderr-line-180"));
+        assert!(!tail.contains("stderr-line-001"));
+        assert!(
+            tail.len() <= STDERR_TAIL_MAX_BYTES + 256,
+            "tail too large: {}",
+            tail.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn nonzero_error_excludes_progress_lines_from_tail() {
+        let runner = FfmpegRunner::new(FfmpegPaths::default());
+        let err = runner
+            .run(
+                "/bin/sh",
+                &[
+                    "-c",
+                    r#"printf '  frame=1\n' >&2; printf 'out_time_ms=123\n' >&2; printf 'time=00:00:01.00 bitrate=1kbits/s\n' >&2; printf 'actual encoder failure\n' >&2; exit 254"#,
+                ],
+                CancellationToken::default(),
+            )
+            .await
+            .expect_err("ffmpeg command should fail");
+        let message = err.to_string();
+        assert!(message.contains("actual encoder failure"));
+        assert!(!message.contains("frame=1"));
+        assert!(!message.contains("out_time_ms=123"));
+        assert!(!message.contains("time=00:00:01.00"));
     }
 }
