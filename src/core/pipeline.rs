@@ -258,7 +258,7 @@ impl Pipeline {
             let start_dt = group.files.first().and_then(|f| parse_filename(&f.path).timestamp);
             let end_dt = group.files.last().and_then(|f| parse_filename(&f.path).timestamp);
 
-            let mut failure_inputs = Vec::new();
+            let failure_members = group.files.iter().map(|item| item.path.clone()).collect::<Vec<_>>();
             let mut fallback_attempted = false;
             let (result, bytes_in) = if group.files.len() == 1 && runner.available() {
                 let item = &group.files[0];
@@ -274,7 +274,6 @@ impl Pipeline {
                         tracing::warn!("direct input failed ({}), falling back to staging+concat", e);
                         let inputs = stage_group_files(&src_vfs, &group.files, &group_stage).await?;
                         let bsz = sum_file_sizes(&inputs).unwrap_or(0);
-                        failure_inputs = inputs.clone();
                         let fallback = if runner.available() {
                             fallback_attempted = true;
                             run_with_encoder(&runner, &source, &inputs, &local_out, cancel.clone())
@@ -289,7 +288,6 @@ impl Pipeline {
             } else {
                 let inputs = stage_group_files(&src_vfs, &group.files, &group_stage).await?;
                 let bsz = sum_file_sizes(&inputs).unwrap_or(0);
-                failure_inputs = inputs.clone();
                 let r = if runner.available() {
                     run_with_encoder(&runner, &source, &inputs, &local_out, cancel.clone()).await
                 } else {
@@ -299,9 +297,29 @@ impl Pipeline {
             };
             total_bytes_in += bytes_in;
 
+            let expected_duration = expected_duration_secs(&group.files);
+            let result = match result {
+                Ok((mut tracker, fallback_used)) => {
+                    let mode = warn_log_mode_for_decision(decision);
+                    tracker.set_mode(mode.to_string(), fallback_used);
+                    let tolerance_factor = post_validate_tolerance_factor(mode, fallback_used);
+                    match post_validate_output(&runner, &local_out, expected_duration, tolerance_factor).await {
+                        Ok(()) => Ok((tracker, fallback_used)),
+                        Err(reason) => {
+                            let _ = tokio::fs::remove_file(&local_out).await;
+                            Err(FfmpegRunError {
+                                message: reason,
+                                tracker,
+                            }
+                            .into())
+                        }
+                    }
+                }
+                Err(error) => Err(error),
+            };
+
             match result {
                 Ok((mut tracker, fallback_used)) => {
-                    tracker.set_mode(warn_log_mode_for_decision(decision).to_string(), fallback_used);
                     for (category, message) in &group_warning_examples {
                         tracker.add_warning(category.clone(), message.clone());
                     }
@@ -376,7 +394,7 @@ impl Pipeline {
                         .await?;
                     }
                     upload_warn_log(&dst_vfs, &out_vfs, &tracker, "failed", Some(&reason)).await?;
-                    upload_failure_log(&dst_vfs, &out_vfs, &failure_inputs, &reason).await?;
+                    upload_failure_log(&dst_vfs, &out_vfs, &failure_members, &reason).await?;
                     MergeRunsRepo::update_group(
                         &self.db,
                         group_model.id,
@@ -722,7 +740,7 @@ async fn upload_failure_log(dst_vfs: &Vfs, out: &Path, inputs: &[PathBuf], reaso
     for input in inputs {
         text.push_str(&format!("  {}\n", input.display()));
     }
-    let log_path = out.with_extension("mp4.failure.log");
+    let log_path = PathBuf::from(format!("{}.failure.log", out.to_string_lossy()));
     ensure_vfs_parent(dst_vfs, &log_path).await?;
     dst_vfs.put(&log_path, text.into_bytes()).await?;
     Ok(())
@@ -756,6 +774,18 @@ fn secs_to_ms(secs: f64) -> i64 {
     (secs * 1000.0).round() as i64
 }
 
+fn expected_duration_secs(files: &[crate::core::grouping::VideoItem]) -> Option<f64> {
+    let mut total_ms = 0_i64;
+    let mut has_any = false;
+    for item in files {
+        if let Some(duration_ms) = item.duration_ms.filter(|value| *value > 0) {
+            total_ms += duration_ms;
+            has_any = true;
+        }
+    }
+    has_any.then_some(total_ms as f64 / 1000.0)
+}
+
 fn file_size(path: &Path) -> Option<i64> {
     std::fs::metadata(path).ok().and_then(|m| i64::try_from(m.len()).ok())
 }
@@ -777,6 +807,46 @@ fn warn_log_mode_for_decision(decision: &str) -> &'static str {
         "encode_nvenc" | "encode_x265" => "compress",
         _ => "concat_copy",
     }
+}
+
+fn post_validate_tolerance_factor(mode: &str, fallback_used: bool) -> f64 {
+    if mode == "concat_copy" || fallback_used {
+        0.10
+    } else {
+        0.05
+    }
+}
+
+async fn post_validate_output(
+    runner: &FfmpegRunner,
+    output: &Path,
+    expected_duration: Option<f64>,
+    tolerance_factor: f64,
+) -> Result<(), String> {
+    let metadata = tokio::fs::metadata(output).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "post-validate: output missing".to_string()
+        } else {
+            format!("post-validate: stat failed: {error}")
+        }
+    })?;
+    if metadata.len() == 0 {
+        return Err("post-validate: output empty".to_string());
+    }
+    let measured_duration = runner
+        .probe_output_duration(output)
+        .await
+        .map_err(|error| format!("post-validate: ffprobe failed: {error}"))?;
+    if let Some(expected_duration) = expected_duration {
+        let tolerance = (expected_duration * tolerance_factor).max(1.0);
+        let delta = (measured_duration - expected_duration).abs();
+        if delta > tolerance {
+            return Err(format!(
+                "post-validate: duration mismatch (expected {expected_duration:.1}, got {measured_duration:.1}, tolerance ±{tolerance:.1})"
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn run_with_encoder(

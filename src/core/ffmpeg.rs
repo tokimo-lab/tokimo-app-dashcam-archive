@@ -358,6 +358,47 @@ impl FfmpegRunner {
         &self.paths
     }
 
+    pub async fn probe_output_duration(&self, output: &Path) -> anyhow::Result<f64> {
+        let ffprobe = self
+            .paths
+            .ffprobe
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("ffprobe binary is unavailable"))?;
+        let mut command = Command::new(ffprobe);
+        let output_arg = output.to_string_lossy().to_string();
+        command.args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            &output_arg,
+        ]);
+        self.paths.apply_library_env(&mut command);
+        let output = command.output().await?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "ffprobe failed{}",
+                if stderr.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {stderr}")
+                }
+            );
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let raw = stdout.lines().next().unwrap_or_default().trim();
+        let duration = raw
+            .parse::<f64>()
+            .map_err(|error| anyhow::anyhow!("ffprobe duration parse failed: {error}"))?;
+        if !duration.is_finite() || duration <= 0.0 {
+            anyhow::bail!("ffprobe returned invalid duration: {raw}");
+        }
+        Ok(duration)
+    }
+
     pub async fn concat_copy(
         &self,
         inputs: &[PathBuf],
