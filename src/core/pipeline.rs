@@ -24,8 +24,8 @@ use crate::{
         duration::DurationResolver,
         encoder::{EncodeProfile, EncoderRegistry, X265_DEFAULT_CRF},
         ffmpeg::{
-            CancellationToken, FfmpegRunError, FfmpegRunner, WarningTracker, default_concat_input_flags,
-            nvenc_concat_input_flags,
+            CancellationToken, FfmpegRunError, FfmpegRunner, NegativeCompressionOptions, WarningTracker,
+            default_concat_input_flags, nvenc_concat_input_flags,
         },
         grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_probe},
         naming::{is_video_file, parse_filename},
@@ -284,9 +284,18 @@ impl Pipeline {
                         let bsz = sum_file_sizes(&inputs).unwrap_or(0);
                         let fallback = if runner.available() {
                             fallback_attempted = true;
-                            run_with_encoder(&runner, &source, &group.files, &inputs, &local_out, cancel.clone())
-                                .await
-                                .map(|(t, _)| (t, true))
+                            run_with_encoder(
+                                &runner,
+                                &source,
+                                &group.files,
+                                &inputs,
+                                &local_out,
+                                expected_duration_secs(&group.files),
+                                bsz,
+                                cancel.clone(),
+                            )
+                            .await
+                            .map(|(t, _)| (t, true))
                         } else {
                             Err(anyhow::anyhow!("ffmpeg binary is unavailable"))
                         };
@@ -297,7 +306,17 @@ impl Pipeline {
                 let inputs = stage_group_files(&src_vfs, &group.files, &group_stage).await?;
                 let bsz = sum_file_sizes(&inputs).unwrap_or(0);
                 let r = if runner.available() {
-                    run_with_encoder(&runner, &source, &group.files, &inputs, &local_out, cancel.clone()).await
+                    run_with_encoder(
+                        &runner,
+                        &source,
+                        &group.files,
+                        &inputs,
+                        &local_out,
+                        expected_duration_secs(&group.files),
+                        bsz,
+                        cancel.clone(),
+                    )
+                    .await
                 } else {
                     Err(anyhow::anyhow!("ffmpeg binary is unavailable"))
                 };
@@ -859,22 +878,6 @@ async fn post_validate_output(
 
 const H264_TARGET_RATIO: f64 = 0.65;
 
-fn profile_for_source(source: &sources::Model, group_files: &[crate::core::grouping::VideoItem]) -> EncodeProfile {
-    match source.encoder.as_str() {
-        "nvenc-h265" => {
-            let base =
-                nvenc_profile_for_camera(group_files.first().map(|item| item.camera.as_str()).unwrap_or_default());
-            h264_group_input_bps(group_files)
-                .map_or(base.clone(), |input_bps| derive_h264_nvenc_profile(&base, input_bps))
-        }
-        "x265-veryslow" => EncodeProfile {
-            crf: x265_crf_from_encoder_params(&source.encoder_params),
-            ..EncodeProfile::default()
-        },
-        _ => EncodeProfile::default(),
-    }
-}
-
 fn nvenc_profile_for_camera(camera: &str) -> EncodeProfile {
     let mut profile = EncodeProfile::default();
     match camera {
@@ -973,66 +976,206 @@ async fn run_with_encoder(
     group_files: &[crate::core::grouping::VideoItem],
     inputs: &[PathBuf],
     out: &Path,
+    expected_duration: Option<f64>,
+    input_size: i64,
     cancel: CancellationToken,
 ) -> anyhow::Result<(WarningTracker, bool)> {
-    match source.encoder.as_str() {
-        "nvenc-h265" | "x265-veryslow" => {
-            let Some(ffmpeg) = runner.paths().ffmpeg.as_deref() else {
-                anyhow::bail!("ffmpeg binary is unavailable");
-            };
-            let registry = EncoderRegistry::new_with_builtins(
-                Path::new(ffmpeg),
-                runner.paths().library_dir.as_deref().map(Path::new),
-            );
-            let Some(encoder) = registry.get(&source.encoder) else {
-                return runner
-                    .concat_copy(inputs, out, cancel)
-                    .await
-                    .map(|tracker| (tracker, true))
-                    .map_err(mark_internal_fallback_attempted);
-            };
-            let profile = profile_for_source(source, group_files);
-            let input_flags = if source.encoder == "nvenc-h265" {
-                nvenc_concat_input_flags()
-            } else {
-                default_concat_input_flags()
-            };
-            match runner
-                .concat_encode(
-                    inputs,
-                    out,
-                    &encoder.encode_args(&profile),
-                    &input_flags,
-                    cancel.clone(),
-                )
-                .await
-            {
-                Ok(tracker) => Ok((tracker, false)),
-                Err(error) if !error.to_string().contains("cancelled") => {
-                    let tracker = runner
-                        .concat_copy(inputs, out, cancel)
-                        .await
-                        .map_err(mark_internal_fallback_attempted)?;
-                    Ok((tracker, true))
+    let attempts = encoder_attempts(source.encoder.as_str());
+    let Some(ffmpeg) = runner.paths().ffmpeg.as_deref() else {
+        anyhow::bail!("ffmpeg binary is unavailable");
+    };
+    let registry =
+        EncoderRegistry::new_with_builtins(Path::new(ffmpeg), runner.paths().library_dir.as_deref().map(Path::new));
+    let mut retry_warnings = Vec::<(String, String)>::new();
+    let mut failed_attempt_warnings = WarningTracker::default();
+
+    for (attempt_index, attempt) in attempts.iter().enumerate() {
+        let is_last = attempt_index + 1 == attempts.len();
+        let context = EncoderAttemptContext {
+            runner,
+            registry: &registry,
+            source,
+            group_files,
+            inputs,
+            out,
+            expected_duration,
+            input_size,
+        };
+        let result = run_encoder_attempt(context, attempt, cancel.clone()).await;
+        match result {
+            Ok(mut tracker) => {
+                if attempt_index > 0 {
+                    tracker.mark_fallback_attempted();
                 }
-                Err(error) => Err(error),
+                tracker.extend_warnings_from(&failed_attempt_warnings);
+                for (category, message) in retry_warnings {
+                    tracker.add_warning(category, message);
+                }
+                return Ok((tracker, attempt_index > 0));
+            }
+            Err(error) if error.to_string().contains("cancelled") => return Err(error),
+            Err(error) if !is_last => {
+                if let Some(ffmpeg_error) = error.downcast_ref::<FfmpegRunError>() {
+                    failed_attempt_warnings.extend_warnings_from(&ffmpeg_error.tracker);
+                }
+                let reason = error.to_string();
+                let next_attempt = attempts[attempt_index + 1];
+                tracing::warn!(%reason, attempt, next_attempt, "dashcam-archive: encoder attempt failed; retrying");
+                retry_warnings.push((
+                    "encoder_retry".to_string(),
+                    format!("{attempt} failed; retrying with {next_attempt}: {reason}"),
+                ));
+                let _ = tokio::fs::remove_file(out).await;
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                let mut tracker = error
+                    .downcast_ref::<FfmpegRunError>()
+                    .map(|err| err.tracker.clone())
+                    .unwrap_or_default();
+                tracker.extend_warnings_from(&failed_attempt_warnings);
+                for (category, message) in retry_warnings {
+                    tracker.add_warning(category, message);
+                }
+                if attempt_index > 0 {
+                    tracker.mark_fallback_attempted();
+                }
+                return Err(FfmpegRunError {
+                    message: reason,
+                    tracker,
+                }
+                .into());
             }
         }
-        _ => runner
-            .concat_copy(inputs, out, cancel)
-            .await
-            .map(|tracker| (tracker, false)),
+    }
+
+    anyhow::bail!("encoder retry chain is empty")
+}
+
+struct EncoderAttemptContext<'a> {
+    runner: &'a FfmpegRunner,
+    registry: &'a EncoderRegistry,
+    source: &'a sources::Model,
+    group_files: &'a [crate::core::grouping::VideoItem],
+    inputs: &'a [PathBuf],
+    out: &'a Path,
+    expected_duration: Option<f64>,
+    input_size: i64,
+}
+
+async fn run_encoder_attempt(
+    context: EncoderAttemptContext<'_>,
+    attempt: &str,
+    cancel: CancellationToken,
+) -> anyhow::Result<WarningTracker> {
+    let mut tracker = if attempt == "copy" {
+        context.runner.concat_copy(context.inputs, context.out, cancel).await?
+    } else {
+        let Some(encoder) = context.registry.get(attempt) else {
+            anyhow::bail!("encoder {attempt} is unavailable");
+        };
+        let profile = profile_for_attempt(attempt, context.source, context.group_files);
+        let input_flags = if attempt == "nvenc-h265" {
+            nvenc_concat_input_flags()
+        } else {
+            default_concat_input_flags()
+        };
+        context
+            .runner
+            .concat_encode(
+                context.inputs,
+                context.out,
+                &encoder.encode_args(&profile),
+                &input_flags,
+                cancel,
+                negative_compression_options(context.expected_duration, context.input_size),
+            )
+            .await?
+    };
+
+    let fallback_used = attempt == "copy";
+    let tolerance_factor = post_validate_tolerance_factor(warn_log_mode_for_attempt(attempt), fallback_used);
+    if let Err(reason) =
+        post_validate_output(context.runner, context.out, context.expected_duration, tolerance_factor).await
+    {
+        let _ = tokio::fs::remove_file(context.out).await;
+        tracker.add_warning("encoder_retry", reason.clone());
+        return Err(FfmpegRunError {
+            message: reason,
+            tracker,
+        }
+        .into());
+    }
+
+    if attempt != "copy" && output_exceeds_input(context.out, context.input_size).await? {
+        let output_size = file_size(context.out).unwrap_or(0);
+        let reason = format!(
+            "post negative compression: output {output_size} > input {}",
+            context.input_size
+        );
+        let _ = tokio::fs::remove_file(context.out).await;
+        tracker.add_warning("negative_compression", reason.clone());
+        return Err(FfmpegRunError {
+            message: reason,
+            tracker,
+        }
+        .into());
+    }
+
+    Ok(tracker)
+}
+
+fn encoder_attempts(encoder: &str) -> Vec<&'static str> {
+    match encoder {
+        "nvenc-h265" => vec!["nvenc-h265", "x265-veryslow", "copy"],
+        "x265-veryslow" => vec!["x265-veryslow", "copy"],
+        _ => vec!["copy"],
     }
 }
 
-fn mark_internal_fallback_attempted(error: anyhow::Error) -> anyhow::Error {
-    match error.downcast::<FfmpegRunError>() {
-        Ok(mut error) => {
-            error.tracker.mark_fallback_attempted();
-            error.into()
+fn profile_for_attempt(
+    attempt: &str,
+    source: &sources::Model,
+    group_files: &[crate::core::grouping::VideoItem],
+) -> EncodeProfile {
+    match attempt {
+        "nvenc-h265" => {
+            let base =
+                nvenc_profile_for_camera(group_files.first().map(|item| item.camera.as_str()).unwrap_or_default());
+            h264_group_input_bps(group_files)
+                .map_or(base.clone(), |input_bps| derive_h264_nvenc_profile(&base, input_bps))
         }
-        Err(error) => error,
+        "x265-veryslow" => EncodeProfile {
+            crf: x265_crf_from_encoder_params(&source.encoder_params),
+            ..EncodeProfile::default()
+        },
+        _ => EncodeProfile::default(),
     }
+}
+
+fn warn_log_mode_for_attempt(attempt: &str) -> &'static str {
+    match attempt {
+        "nvenc-h265" | "x265-veryslow" => "compress",
+        _ => "concat_copy",
+    }
+}
+
+fn negative_compression_options(expected_duration: Option<f64>, input_size: i64) -> Option<NegativeCompressionOptions> {
+    expected_duration
+        .filter(|duration| *duration > 0.0 && input_size > 0)
+        .map(|duration| NegativeCompressionOptions {
+            expected_duration_secs: duration,
+            input_size_bytes: input_size,
+        })
+}
+
+async fn output_exceeds_input(out: &Path, input_size: i64) -> anyhow::Result<bool> {
+    if input_size <= 0 {
+        return Ok(false);
+    }
+    let metadata = tokio::fs::metadata(out).await?;
+    let output_size = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
+    Ok(output_size > input_size)
 }
 
 async fn try_direct_input(

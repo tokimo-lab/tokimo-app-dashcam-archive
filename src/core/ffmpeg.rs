@@ -8,7 +8,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -101,6 +101,7 @@ pub struct WarningTracker {
     was_fallback: bool,
     last_out_time_ms: Option<i64>,
     last_time: Option<String>,
+    last_total_size_bytes: Option<i64>,
 }
 
 impl WarningTracker {
@@ -130,9 +131,17 @@ impl WarningTracker {
         });
     }
 
+    pub fn extend_warnings_from(&mut self, other: &WarningTracker) {
+        self.warnings.extend(other.warnings.iter().cloned());
+    }
+
     pub fn observe(&mut self, line: &str) {
         if let Some(value) = line.strip_prefix("out_time_ms=") {
             self.last_out_time_ms = value.trim().parse::<i64>().ok();
+            return;
+        }
+        if let Some(value) = line.strip_prefix("total_size=").or_else(|| line.strip_prefix("size=")) {
+            self.last_total_size_bytes = value.trim().parse::<i64>().ok();
             return;
         }
         if let Some(idx) = line.find("time=") {
@@ -273,6 +282,9 @@ impl WarningTracker {
         if let Some(value) = &self.last_time {
             info.push(format!("- last_time: {value}"));
         }
+        if let Some(value) = self.last_total_size_bytes {
+            info.push(format!("- last_total_size_bytes: {value}"));
+        }
 
         let mut text = String::new();
         append_bucket(&mut text, "error", &errors);
@@ -280,6 +292,17 @@ impl WarningTracker {
         append_bucket(&mut text, "info", &info);
         text
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NegativeCompressionOptions {
+    pub expected_duration_secs: f64,
+    pub input_size_bytes: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FfmpegRunOptions {
+    negative_compression: Option<NegativeCompressionOptions>,
 }
 
 #[derive(Debug, Clone)]
@@ -338,6 +361,95 @@ impl CancellationToken {
     }
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::SeqCst)
+    }
+}
+
+const NEGATIVE_WARMUP_SECS: Duration = Duration::from_secs(30);
+const NEGATIVE_WARMUP_PROGRESS_RATIO: f64 = 0.05;
+const NEGATIVE_ENTER_BAD_RATIO: f64 = 0.95;
+const NEGATIVE_EXIT_GOOD_RATIO: f64 = 0.85;
+const NEGATIVE_EXIT_OK_SECS: Duration = Duration::from_secs(10);
+const NEGATIVE_ABORT_HOLD_SECS: Duration = Duration::from_secs(20);
+const NEGATIVE_ABORT_RATIO: f64 = 1.0;
+const OUT_TIME_UNITS_PER_SECOND: f64 = 1_000_000.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NegativeMonitorPhase {
+    Ok,
+    Warn,
+}
+
+#[derive(Debug, Clone)]
+struct NegativeCompressionMonitor {
+    options: NegativeCompressionOptions,
+    phase: NegativeMonitorPhase,
+    warn_started_at: Option<Duration>,
+    good_streak_started_at: Option<Duration>,
+    aborted: bool,
+}
+
+impl NegativeCompressionMonitor {
+    fn new(options: NegativeCompressionOptions) -> Self {
+        Self {
+            options,
+            phase: NegativeMonitorPhase::Ok,
+            warn_started_at: None,
+            good_streak_started_at: None,
+            aborted: false,
+        }
+    }
+
+    fn evaluate(&mut self, tracker: &WarningTracker, wall_elapsed: Duration) -> Option<String> {
+        if self.aborted || self.options.expected_duration_secs <= 0.0 || self.options.input_size_bytes <= 0 {
+            return None;
+        }
+        if wall_elapsed < NEGATIVE_WARMUP_SECS {
+            return None;
+        }
+        let out_time = tracker.last_out_time_ms? as f64 / OUT_TIME_UNITS_PER_SECOND;
+        let current_size = tracker.last_total_size_bytes?;
+        if out_time <= 0.0 || current_size <= 0 {
+            return None;
+        }
+        let progress_ratio = out_time / self.options.expected_duration_secs;
+        if progress_ratio < NEGATIVE_WARMUP_PROGRESS_RATIO {
+            return None;
+        }
+        let estimated = (current_size as f64 / progress_ratio).ceil() as i64;
+        let ratio = estimated as f64 / self.options.input_size_bytes as f64;
+
+        if self.phase == NegativeMonitorPhase::Ok {
+            if ratio > NEGATIVE_ENTER_BAD_RATIO {
+                self.phase = NegativeMonitorPhase::Warn;
+                self.warn_started_at = Some(wall_elapsed);
+                self.good_streak_started_at = None;
+            }
+            return None;
+        }
+
+        if ratio < NEGATIVE_EXIT_GOOD_RATIO {
+            match self.good_streak_started_at {
+                Some(started_at) if wall_elapsed.saturating_sub(started_at) >= NEGATIVE_EXIT_OK_SECS => {
+                    self.phase = NegativeMonitorPhase::Ok;
+                    self.warn_started_at = None;
+                    self.good_streak_started_at = None;
+                }
+                Some(_) => {}
+                None => self.good_streak_started_at = Some(wall_elapsed),
+            }
+            return None;
+        }
+        self.good_streak_started_at = None;
+
+        let warn_started_at = self.warn_started_at.unwrap_or(wall_elapsed);
+        if wall_elapsed.saturating_sub(warn_started_at) >= NEGATIVE_ABORT_HOLD_SECS && ratio > NEGATIVE_ABORT_RATIO {
+            self.aborted = true;
+            return Some(format!(
+                "predictive abort: estimated final size {estimated} > input {}",
+                self.options.input_size_bytes
+            ));
+        }
+        None
     }
 }
 
@@ -412,6 +524,7 @@ impl FfmpegRunner {
             &["-c".to_string(), "copy".to_string()],
             &input_flags,
             cancel,
+            FfmpegRunOptions::default(),
         )
         .await
     }
@@ -423,11 +536,20 @@ impl FfmpegRunner {
         encode_args: &[String],
         input_flags: &[String],
         cancel: CancellationToken,
+        negative_compression: Option<NegativeCompressionOptions>,
     ) -> anyhow::Result<WarningTracker> {
         let mut args = encode_args.to_vec();
         args.push("-c:a".to_string());
         args.push("copy".to_string());
-        self.run_concat(inputs, output, &args, input_flags, cancel).await
+        self.run_concat(
+            inputs,
+            output,
+            &args,
+            input_flags,
+            cancel,
+            FfmpegRunOptions { negative_compression },
+        )
+        .await
     }
 
     async fn run_concat(
@@ -437,6 +559,7 @@ impl FfmpegRunner {
         codec_args: &[String],
         input_flags: &[String],
         cancel: CancellationToken,
+        options: FfmpegRunOptions,
     ) -> anyhow::Result<WarningTracker> {
         let ffmpeg = self
             .paths
@@ -484,12 +607,18 @@ impl FfmpegRunner {
         args.push("+faststart".to_string());
         args.push(output_arg);
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        let result = self.run(ffmpeg, &arg_refs, cancel).await;
+        let result = self.run(ffmpeg, &arg_refs, cancel, options).await;
         let _ = tokio::fs::remove_file(&list_path).await;
         result
     }
 
-    async fn run(&self, program: &str, args: &[&str], cancel: CancellationToken) -> anyhow::Result<WarningTracker> {
+    async fn run(
+        &self,
+        program: &str,
+        args: &[&str],
+        cancel: CancellationToken,
+        options: FfmpegRunOptions,
+    ) -> anyhow::Result<WarningTracker> {
         let mut command = Command::new(program);
         command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
         self.paths.apply_library_env(&mut command);
@@ -511,11 +640,25 @@ impl FfmpegRunner {
         let mut tracker = WarningTracker::default();
         tracker.set_command(program, args);
         let mut stderr_tail = StderrTail::default();
+        let start = Instant::now();
+        let mut negative_monitor = options.negative_compression.map(NegativeCompressionMonitor::new);
         loop {
             tokio::select! {
                 line = lines.next_line() => match line? {
                     Some(line) => {
                         tracker.observe(&line);
+                        if let Some(monitor) = negative_monitor.as_mut()
+                            && let Some(reason) = monitor.evaluate(&tracker, start.elapsed())
+                        {
+                            tracker.add_warning("negative_compression", reason.clone());
+                            let _ = child.kill().await;
+                            let _ = stdout_drain.await;
+                            return Err(FfmpegRunError {
+                                message: reason,
+                                tracker,
+                            }
+                            .into());
+                        }
                         if !is_ffmpeg_progress_line(&line) {
                             stderr_tail.push(line);
                         }
@@ -600,6 +743,7 @@ fn is_ffmpeg_progress_line(line: &str) -> bool {
         "speed=",
         "bitrate=",
         "total_size=",
+        "size=",
         "dup_frames=",
         "drop_frames=",
         "time=",
@@ -623,6 +767,7 @@ mod tests {
                     r#"i=0; while [ "$i" -lt 180 ]; do i=$((i + 1)); printf 'stderr-line-%03d abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n' "$i" >&2; done; exit 254"#,
                 ],
                 CancellationToken::default(),
+                FfmpegRunOptions::default(),
             )
             .await
             .expect_err("ffmpeg command should fail");
@@ -650,6 +795,7 @@ mod tests {
                     r#"printf '  frame=1\n' >&2; printf 'out_time_ms=123\n' >&2; printf 'time=00:00:01.00 bitrate=1kbits/s\n' >&2; printf 'actual encoder failure\n' >&2; exit 254"#,
                 ],
                 CancellationToken::default(),
+                FfmpegRunOptions::default(),
             )
             .await
             .expect_err("ffmpeg command should fail");
