@@ -1,21 +1,21 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::{
-    db::{
-        entities::merge_runs,
-        repos::sources_repo::SourcesRepo,
-    },
-    orchestrator::Orchestrator,
-};
+use crate::{db::repos::sources_repo::SourcesRepo, orchestrator::Orchestrator};
 
 /// Maps source_id → scheduler job UUID so we can remove stale jobs on reload.
 type JobMap = Arc<Mutex<HashMap<Uuid, Uuid>>>;
+
+/// Set of source IDs with active pipeline runs for deduplication.
+type ActiveRuns = Arc<Mutex<HashSet<Uuid>>>;
 
 pub struct CronSupervisor {
     scheduler: JobScheduler,
@@ -23,6 +23,8 @@ pub struct CronSupervisor {
     db: DatabaseConnection,
     /// source_id → scheduler job UUID
     jobs: JobMap,
+    /// source IDs with active runs
+    active_runs: ActiveRuns,
 }
 
 impl CronSupervisor {
@@ -33,6 +35,7 @@ impl CronSupervisor {
             orchestrator,
             db,
             jobs: Arc::new(Mutex::new(HashMap::new())),
+            active_runs: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -59,8 +62,10 @@ impl CronSupervisor {
         let cron_sources: Vec<_> = sources
             .into_iter()
             .filter(|s| {
-                matches!(s.trigger_mode.as_str(), "cron" | "cron_and_watcher")
-                    && s.cron_expr.as_deref().map(|e| !e.trim().is_empty()).unwrap_or(false)
+                matches!(
+                    s.trigger_mode.as_str(),
+                    "cron" | "both" | "cron_and_watcher" | "cron+watcher"
+                ) && s.cron_expr.as_deref().map(|e| !e.trim().is_empty()).unwrap_or(false)
             })
             .collect();
 
@@ -76,36 +81,36 @@ impl CronSupervisor {
             let source_id = source.id;
             let user_id = source.user_id;
             let orchestrator = self.orchestrator.clone();
-            let db = self.db.clone();
+            let active_runs = Arc::clone(&self.active_runs);
 
             let job = match Job::new_async(expr.as_str(), move |_uuid, _lock| {
                 let orchestrator = orchestrator.clone();
-                let db = db.clone();
+                let active_runs = Arc::clone(&active_runs);
                 Box::pin(async move {
-                    // Dedup: skip if there's already a queued or running run for this source.
-                    match has_active_run(&db, source_id).await {
-                        Ok(true) => {
+                    {
+                        let mut active = active_runs.lock().await;
+                        if !active.insert(source_id) {
                             info!(
                                 source_id = %source_id,
-                                "dashcam-archive: cron tick skipped — run already active"
+                                "dashcam-archive: skip cron trigger: previous run still active"
                             );
                             return;
                         }
-                        Err(error) => {
-                            warn!(%error, %source_id, "dashcam-archive: dedup check failed, proceeding anyway");
-                        }
-                        Ok(false) => {}
                     }
 
-                    if let Err(error) = orchestrator.enqueue_run(source_id, user_id).await {
-                        warn!(
-                            %error,
-                            %source_id,
-                            "dashcam-archive: cron-triggered enqueue_run failed"
-                        );
-                    } else {
-                        info!(%source_id, "dashcam-archive: cron-triggered run enqueued");
-                    }
+                    tokio::spawn(async move {
+                        if let Err(error) = orchestrator.run_source_with_trigger(source_id, user_id, "cron").await {
+                            warn!(
+                                %error,
+                                %source_id,
+                                "dashcam-archive: cron-triggered run failed"
+                            );
+                        } else {
+                            info!(%source_id, "dashcam-archive: cron-triggered run completed");
+                        }
+
+                        active_runs.lock().await.remove(&source_id);
+                    });
                 })
             }) {
                 Ok(job) => job,
@@ -136,31 +141,16 @@ impl CronSupervisor {
             }
         }
 
-        info!(
-            count = map.len(),
-            "dashcam-archive: CronSupervisor reload complete"
-        );
+        info!(count = map.len(), "dashcam-archive: CronSupervisor reload complete");
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         self.scheduler.shutdown().await?;
         info!("dashcam-archive: CronSupervisor shutdown");
         Ok(())
     }
-}
-
-/// Returns true if there is already a queued or running merge_run for this source.
-async fn has_active_run(db: &DatabaseConnection, source_id: Uuid) -> anyhow::Result<bool> {
-    let count = merge_runs::Entity::find()
-        .filter(merge_runs::Column::SourceId.eq(source_id))
-        .filter(
-            merge_runs::Column::Status
-                .is_in(["queued", "running"]),
-        )
-        .count(db)
-        .await?;
-    Ok(count > 0)
 }
 
 /// Convert a standard 5-field UNIX cron expression to the 6-field format

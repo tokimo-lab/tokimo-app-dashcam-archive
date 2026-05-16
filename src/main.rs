@@ -4,9 +4,11 @@ mod app_server;
 mod assets;
 mod cli;
 mod core;
+mod cron_supervisor;
 mod db;
 mod handlers;
 mod orchestrator;
+mod watcher_supervisor;
 
 use std::sync::{Arc, OnceLock};
 
@@ -16,7 +18,10 @@ use tokimo_bus_client::{BusClient, ClientConfig};
 use tokimo_bus_protocol::CallerCtx;
 use tracing::{error, info, warn};
 
-use crate::{core::ffmpeg::FfmpegPaths, orchestrator::Orchestrator};
+use crate::{
+    core::ffmpeg::FfmpegPaths, cron_supervisor::CronSupervisor, orchestrator::Orchestrator,
+    watcher_supervisor::WatcherSupervisor,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -86,7 +91,38 @@ async fn run_server() -> anyhow::Result<()> {
         warn!("dashcam-archive: BusClient slot already initialized");
     }
     probe_ffmpeg_paths(&client, &ffmpeg_paths).await;
-    ctx.orchestrator.start_supervisors().await?;
+
+    // Initialize supervisors.
+    let cron_supervisor = Arc::new(
+        CronSupervisor::new(db.clone(), ctx.orchestrator.clone())
+            .await
+            .map_err(|error| anyhow::anyhow!("CronSupervisor::new: {error}"))?,
+    );
+    let watcher_supervisor = Arc::new(
+        WatcherSupervisor::new(db.clone(), ctx.orchestrator.clone())
+            .await
+            .map_err(|error| anyhow::anyhow!("WatcherSupervisor::new: {error}"))?,
+    );
+
+    // Wire reload hook so handlers can trigger supervisor reload on source CRUD.
+    {
+        let cron = Arc::clone(&cron_supervisor);
+        let watcher = Arc::clone(&watcher_supervisor);
+        ctx.orchestrator.set_reload_hook(move || {
+            let cron = Arc::clone(&cron);
+            let watcher = Arc::clone(&watcher);
+            Box::pin(async move {
+                cron.reload().await?;
+                watcher.reload().await?;
+                Ok(())
+            })
+        });
+    }
+
+    // Start supervisors.
+    cron_supervisor.start().await?;
+    watcher_supervisor.start().await?;
+
     info!("dashcam-archive: registered with broker");
 
     let shutdown = {

@@ -4,16 +4,11 @@
 //! - **Local** (`src_source_type == "local"`): `notify-debouncer-full` on the native FS path.
 //! - **Remote** (smb/sftp/s3/ftp/…): periodic VFS `list()` poll comparing (path, size, mtime).
 
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 
 use chrono::DateTime;
 use notify::RecursiveMode;
-use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -60,7 +55,12 @@ impl WatcherSupervisor {
         let sources = SourcesRepo::list_enabled(&self.db).await?;
         let watcher_sources: Vec<_> = sources
             .into_iter()
-            .filter(|s| matches!(s.trigger_mode.as_str(), "watcher" | "cron_and_watcher"))
+            .filter(|s| {
+                matches!(
+                    s.trigger_mode.as_str(),
+                    "watcher" | "both" | "cron_and_watcher" | "cron+watcher"
+                )
+            })
             .collect();
 
         for source in watcher_sources {
@@ -85,13 +85,22 @@ impl WatcherSupervisor {
                 self.spawn_remote_poller(source_id, user_id, vfs, source.src_path.clone(), debounce, shutdown_rx);
             }
 
-            handles.insert(source_id, WatcherHandle { _shutdown_tx: shutdown_tx });
+            handles.insert(
+                source_id,
+                WatcherHandle {
+                    _shutdown_tx: shutdown_tx,
+                },
+            );
         }
 
-        tracing::info!(count = handles.len(), "dashcam-archive: WatcherSupervisor reload complete");
+        tracing::info!(
+            count = handles.len(),
+            "dashcam-archive: WatcherSupervisor reload complete"
+        );
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn shutdown(&self) -> anyhow::Result<()> {
         self.handles.lock().await.clear();
         tracing::info!("dashcam-archive: WatcherSupervisor shutdown");
@@ -112,18 +121,14 @@ impl WatcherSupervisor {
         tokio::spawn(async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(4);
 
-            let mut debouncer = match new_debouncer(
-                debounce,
-                None,
-                move |result: DebounceEventResult| {
-                    if let Ok(events) = result {
-                        let has_video = events.iter().any(|e| e.event.paths.iter().any(|p| is_video_file(p)));
-                        if has_video {
-                            let _ = tx.blocking_send(());
-                        }
+            let mut debouncer = match new_debouncer(debounce, None, move |result: DebounceEventResult| {
+                if let Ok(events) = result {
+                    let has_video = events.iter().any(|e| e.event.paths.iter().any(|p| is_video_file(p)));
+                    if has_video {
+                        let _ = tx.blocking_send(());
                     }
-                },
-            ) {
+                }
+            }) {
                 Ok(d) => d,
                 Err(error) => {
                     tracing::error!(%source_id, %error, "watcher: notify debouncer init failed");
@@ -201,10 +206,8 @@ impl WatcherSupervisor {
                                 continue;
                             }
                             let key: FileKey = (f.size, f.modified);
-                            if !first_tick {
-                                if last_seen.get(&f.path) != Some(&key) {
-                                    changed = true;
-                                }
+                            if !first_tick && last_seen.get(&f.path) != Some(&key) {
+                                changed = true;
                             }
                             current.insert(f.path, key);
                         }
