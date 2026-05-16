@@ -24,7 +24,7 @@ use crate::{
         duration::DurationResolver,
         encoder::{EncodeProfile, EncoderRegistry},
         ffmpeg::{CancellationToken, FfmpegRunner, WarningTracker},
-        grouping::{create_combined_filename, group_by_time, item_from_path},
+        grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_path},
         naming::{is_video_file, parse_filename},
         report::RunReport,
         vfs_source,
@@ -136,6 +136,13 @@ impl Pipeline {
         cancel: CancellationToken,
         staging: &Path,
     ) -> anyhow::Result<()> {
+        if !source.allow_combined_input {
+            let src_path_lower = source.src_path.trim_end_matches(['/', '\\']).to_lowercase();
+            if src_path_lower.contains("_combined") {
+                anyhow::bail!("_Combined input rejected (set allow_combined_input=true to override)");
+            }
+        }
+
         let src_vfs = vfs_source::build_vfs(&self.db, source.src_source_id, &source.src_source_type).await?;
         let dst_vfs = vfs_source::build_vfs(&self.db, source.dst_source_id, &source.dst_source_type).await?;
         let input = PathBuf::from(&source.src_path);
@@ -156,7 +163,14 @@ impl Pipeline {
             }
             if is_video_file(&file.path) {
                 let probe = resolver.resolve_vfs(source.id, &src_vfs, &file.info).await?;
-                videos.push(item_from_path(file.path.clone(), probe.duration_secs.map(secs_to_ms)));
+                if probe.broken {
+                    videos.push(ScanEntry::Broken(file.path.clone()));
+                } else {
+                    videos.push(ScanEntry::Video(item_from_path(
+                        file.path.clone(),
+                        probe.duration_secs.map(secs_to_ms),
+                    )));
+                }
             } else {
                 copy_non_video_vfs(&src_vfs, &dst_vfs, &input, &output, file).await?;
             }
@@ -180,7 +194,20 @@ impl Pipeline {
             .await;
         }
 
-        let gap = Duration::from_secs(u64::try_from(source.max_gap_seconds.max(1)).unwrap_or(60));
+        let gap = if source.max_gap_seconds > 0 {
+            Some(Duration::from_secs(u64::try_from(source.max_gap_seconds).unwrap_or(60)))
+        } else {
+            None
+        };
+
+        let mut broken_paths = videos
+            .iter()
+            .filter_map(|entry| match entry {
+                ScanEntry::Video(_) => None,
+                ScanEntry::Broken(path) => Some(path.display().to_string()),
+            })
+            .collect::<Vec<_>>();
+
         let groups = group_by_time(videos, gap);
         let runner = FfmpegRunner::new(self.paths.read().await.clone());
         let mut ok_count = 0_usize;
@@ -212,6 +239,18 @@ impl Pipeline {
                 decision.to_string(),
             )
             .await?;
+
+            let had_broken_warnings = !broken_paths.is_empty();
+            for broken_path in broken_paths.drain(..) {
+                WarningsRepo::add(
+                    &self.db,
+                    group_model.id,
+                    "broken_file_skipped".to_string(),
+                    1,
+                    Some(format!("broken file skipped: {broken_path}")),
+                )
+                .await?;
+            }
 
             let group_stage = staging.join(format!("group-{idx}"));
             tokio::fs::create_dir_all(&group_stage).await?;
@@ -273,7 +312,7 @@ impl Pipeline {
                         .await?;
                     }
                     upload_local_file(&dst_vfs, &local_out, &out_vfs).await?;
-                    let warning_level = if fallback_used || !warnings.is_empty() {
+                    let warning_level = if fallback_used || !warnings.is_empty() || had_broken_warnings {
                         "warn"
                     } else {
                         "clean"
@@ -341,6 +380,44 @@ impl Pipeline {
                 }),
             )
             .await;
+        }
+
+        if !broken_paths.is_empty() && groups.is_empty() {
+            let group_model = MergeRunsRepo::create_group(
+                &self.db,
+                run.id,
+                "broken-files".to_string(),
+                "".to_string(),
+                "none".to_string(),
+            )
+            .await?;
+
+            for broken_path in &broken_paths {
+                WarningsRepo::add(
+                    &self.db,
+                    group_model.id,
+                    "broken_file_skipped".to_string(),
+                    1,
+                    Some(format!("broken file skipped: {}", broken_path)),
+                )
+                .await?;
+            }
+
+            MergeRunsRepo::update_group(
+                &self.db,
+                group_model.id,
+                GroupUpdate {
+                    start_dt: None,
+                    end_dt: None,
+                    status: "skipped".to_string(),
+                    warning_level: "warn".to_string(),
+                    duration_secs: None,
+                    bytes_in: None,
+                    bytes_out: None,
+                    abort_reason: Some("broken file skipped".to_string()),
+                },
+            )
+            .await?;
         }
 
         MergeRunsRepo::update_counters(

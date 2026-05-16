@@ -7,14 +7,21 @@ use regex::Regex;
 pub struct ParsedName {
     pub camera: String,
     pub timestamp: Option<DateTime<FixedOffset>>,
+    pub default_max_time_difference: Option<u64>,
 }
 
-static RE: OnceLock<Vec<Regex>> = OnceLock::new();
+#[derive(Debug, Clone)]
+struct PatternWithGap {
+    regex: Regex,
+    default_gap_secs: u64,
+}
+
+static RE: OnceLock<Vec<PatternWithGap>> = OnceLock::new();
 
 pub fn parse_filename(path: &Path) -> ParsedName {
     let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
-    for regex in patterns() {
-        if let Some(caps) = regex.captures(name) {
+    for pattern in patterns() {
+        if let Some(caps) = pattern.regex.captures(name) {
             let timestamp = caps
                 .name("dt")
                 .and_then(|m| parse_dt(m.as_str()))
@@ -22,12 +29,17 @@ pub fn parse_filename(path: &Path) -> ParsedName {
             let camera = special_camera(path, name)
                 .or_else(|| caps.name("cam").map(|m| m.as_str().to_ascii_uppercase()))
                 .unwrap_or_else(|| infer_parent(path));
-            return ParsedName { camera, timestamp };
+            return ParsedName {
+                camera,
+                timestamp,
+                default_max_time_difference: Some(pattern.default_gap_secs),
+            };
         }
     }
     ParsedName {
         camera: special_camera(path, name).unwrap_or_else(|| infer_parent(path)),
         timestamp: None,
+        default_max_time_difference: None,
     }
 }
 
@@ -55,19 +67,30 @@ pub fn sanitize(value: &str) -> String {
         .collect()
 }
 
-fn patterns() -> &'static [Regex] {
+fn patterns() -> &'static [PatternWithGap] {
     RE.get_or_init(|| {
         [
-            r"(?i)^(?P<dt>\d{14})_\d{14}_\d+(?P<cam>[A-Za-z]+)\.(?:MP4|TS)$",
-            r"(?i)^(?P<dt>\d{14})_\d+(?P<cam>[A-Za-z]+)\.MP4$",
-            r"(?i)^[A-Za-z]+(?P<date>\d{8})-(?P<time>\d{6})-\d+(?P<cam>[A-Za-z]+)\.(?:MP4|TS)$",
-            r"(?i)^[A-Za-z]*\d+_(?P<dt>\d{14})\.(?:MP4|TS)$",
-            r"(?i)^(?P<date>\d{8})_(?P<h>\d{2})h(?P<m>\d{2})m(?P<s>\d{2})s(?:-\d+)?\.(?:MP4|TS)$",
-            r"(?i)^(?P<cam>\d{2})_(?P<dt>\d{14})_\d{14}\.(?:MP4|TS)$",
-            r"(?i)^\d{2}M\d{2}S_(?P<unix>\d{10})\.(?:MP4|TS)$",
+            (r"(?i)^(?P<dt>\d{14})_\d{14}_\d+(?P<cam>[A-Za-z]+)\.(?:MP4|TS)$", 120),
+            (r"(?i)^(?P<dt>\d{14})_\d+(?P<cam>[A-Za-z]+)\.MP4$", 120),
+            (
+                r"(?i)^[A-Za-z]+(?P<date>\d{8})-(?P<time>\d{6})-\d+(?P<cam>[A-Za-z]+)\.(?:MP4|TS)$",
+                200,
+            ),
+            (r"(?i)^[A-Za-z]*\d+_(?P<dt>\d{14})\.(?:MP4|TS)$", 120),
+            (
+                r"(?i)^(?P<date>\d{8})_(?P<h>\d{2})h(?P<m>\d{2})m(?P<s>\d{2})s(?:-\d+)?\.(?:MP4|TS)$",
+                120,
+            ),
+            (r"(?i)^(?P<cam>\d{2})_(?P<dt>\d{14})_\d{14}\.(?:MP4|TS)$", 180),
+            (r"(?i)^\d{2}M\d{2}S_(?P<unix>\d{10})\.(?:MP4|TS)$", 180),
         ]
         .into_iter()
-        .filter_map(|p| Regex::new(p).ok())
+        .filter_map(|(p, gap)| {
+            Regex::new(p).ok().map(|regex| PatternWithGap {
+                regex,
+                default_gap_secs: gap,
+            })
+        })
         .collect()
     })
 }

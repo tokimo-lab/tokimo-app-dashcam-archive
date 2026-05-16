@@ -16,6 +16,13 @@ pub struct VideoItem {
     pub end_datetime: Option<DateTime<FixedOffset>>,
     pub rest_of_filename: Option<String>,
     pub duration_ms: Option<i64>,
+    pub default_max_time_difference: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ScanEntry {
+    Video(VideoItem),
+    Broken(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -40,30 +47,51 @@ pub fn item_from_path(path: PathBuf, duration_ms: Option<i64>) -> VideoItem {
         end_datetime,
         rest_of_filename,
         duration_ms,
+        default_max_time_difference: parsed.default_max_time_difference,
     }
 }
 
-pub fn group_by_camera(items: Vec<VideoItem>) -> BTreeMap<String, Vec<VideoItem>> {
-    let mut map: BTreeMap<String, Vec<VideoItem>> = BTreeMap::new();
-    for item in items {
-        map.entry(item.camera.clone()).or_default().push(item);
+pub fn group_by_camera(entries: Vec<ScanEntry>) -> BTreeMap<String, Vec<ScanEntry>> {
+    let mut map: BTreeMap<String, Vec<ScanEntry>> = BTreeMap::new();
+    for entry in entries {
+        let camera = match &entry {
+            ScanEntry::Video(item) => item.camera.clone(),
+            ScanEntry::Broken(path) => parse_filename(path).camera,
+        };
+        map.entry(camera).or_default().push(entry);
     }
     map
 }
 
-pub fn group_by_time(items: Vec<VideoItem>, gap: Duration) -> Vec<VideoGroup> {
+pub fn group_by_time(entries: Vec<ScanEntry>, gap: Option<Duration>) -> Vec<VideoGroup> {
     let mut groups = Vec::new();
-    for (camera, mut camera_items) in group_by_camera(items) {
-        camera_items.sort_by_key(|item| item.timestamp);
+    for (camera, mut camera_entries) in group_by_camera(entries) {
+        camera_entries.sort_by_key(|entry| match entry {
+            ScanEntry::Video(item) => item.timestamp,
+            ScanEntry::Broken(path) => parse_filename(path).timestamp,
+        });
         let mut current: Vec<VideoItem> = Vec::new();
         let mut previous_end: Option<DateTime<FixedOffset>> = None;
-        for item in camera_items {
-            let should_split = match (previous_end, item.timestamp) {
-                (Some(prev), Some(ts)) => ts
+        for entry in camera_entries {
+            let item = match entry {
+                ScanEntry::Video(item) => item,
+                ScanEntry::Broken(path) => {
+                    if !current.is_empty() {
+                        push_group(&mut groups, &camera, &mut current);
+                    }
+                    previous_end = None;
+                    tracing::warn!("broken file skipped: {}", path.display());
+                    continue;
+                }
+            };
+
+            let effective_gap = gap.or_else(|| item.default_max_time_difference.map(Duration::from_secs));
+            let should_split = match (previous_end, item.timestamp, effective_gap) {
+                (Some(prev), Some(ts), Some(max_gap)) => ts
                     .signed_duration_since(prev)
                     .to_std()
-                    .map_or(true, |delta| delta > gap),
-                _ => !current.is_empty(),
+                    .map_or(true, |delta| delta > max_gap),
+                (Some(_), Some(_), None) | (None, _, _) | (_, None, _) => !current.is_empty(),
             };
             if should_split {
                 push_group(&mut groups, &camera, &mut current);
@@ -77,21 +105,27 @@ pub fn group_by_time(items: Vec<VideoItem>, gap: Duration) -> Vec<VideoGroup> {
 }
 
 pub fn create_combined_filename(group: &VideoGroup) -> String {
-    if let (Some(start), Some(end), Some(rest)) = (group.start, group.end, group.rest_of_filename.as_deref()) {
-        return format!(
-            "{}_{}_{}",
-            start.format("%Y%m%d%H%M%S"),
-            end.format("%Y%m%d%H%M%S"),
-            rest
-        );
+    if let (Some(start), Some(rest)) = (group.start, group.rest_of_filename.as_deref()) {
+        let end = group.end.or(group.start);
+        if let Some(end) = end {
+            return format!(
+                "{}_{}_{}",
+                start.format("%Y%m%d%H%M%S"),
+                end.format("%Y%m%d%H%M%S"),
+                rest
+            );
+        }
     }
-    if let (Some(start), Some(end)) = (group.start, group.end) {
-        return format!(
-            "{}_{}_{}.mp4",
-            start.format("%Y%m%d%H%M%S"),
-            end.format("%Y%m%d%H%M%S"),
-            sanitize(&group.camera)
-        );
+    if let Some(start) = group.start {
+        let end = group.end.or(group.start);
+        if let Some(end) = end {
+            return format!(
+                "{}_{}_{}.mp4",
+                start.format("%Y%m%d%H%M%S"),
+                end.format("%Y%m%d%H%M%S"),
+                sanitize(&group.camera)
+            );
+        }
     }
     if let Some(ts) = group.start {
         return mp4_name_for_ts(&group.camera, ts);
@@ -104,7 +138,7 @@ fn push_group(groups: &mut Vec<VideoGroup>, camera: &str, current: &mut Vec<Vide
         return;
     }
     let start = current.first().and_then(|item| item.timestamp);
-    let end = current.last().and_then(effective_end);
+    let end = current.last().and_then(|item| effective_end(item).or(item.timestamp));
     let rest_of_filename = current.first().and_then(|item| item.rest_of_filename.clone());
     groups.push(VideoGroup {
         camera: camera.to_string(),
@@ -116,9 +150,9 @@ fn push_group(groups: &mut Vec<VideoGroup>, camera: &str, current: &mut Vec<Vide
 }
 
 fn effective_end(item: &VideoItem) -> Option<DateTime<FixedOffset>> {
-    item.end_datetime.or_else(|| {
-        item.timestamp
-            .map(|ts| ts + chrono::Duration::milliseconds(item.duration_ms.unwrap_or(0)))
+    item.end_datetime.or_else(|| match (item.timestamp, item.duration_ms) {
+        (Some(ts), Some(dur)) if dur > 0 => Some(ts + chrono::Duration::milliseconds(dur)),
+        _ => None,
     })
 }
 
@@ -348,9 +382,9 @@ mod tests {
     fn grouped(paths: &[(&str, i64)]) -> VideoGroup {
         let files = paths
             .iter()
-            .map(|(path, duration_ms)| item_from_path(PathBuf::from(path), Some(*duration_ms)))
+            .map(|(path, duration_ms)| ScanEntry::Video(item_from_path(PathBuf::from(path), Some(*duration_ms))))
             .collect::<Vec<_>>();
-        let mut groups = group_by_time(files, Duration::from_secs(120));
+        let mut groups = group_by_time(files, Some(Duration::from_secs(120)));
         assert_eq!(groups.len(), 1);
         groups.remove(0)
     }
@@ -361,6 +395,39 @@ mod tests {
             .unwrap()
             .format("%Y%m%d%H%M%S")
             .to_string()
+    }
+
+    #[test]
+    fn group_by_time_splits_when_no_effective_gap_threshold() {
+        let files = [
+            "/src/CAM/20250101000000_first.mp4",
+            "/src/CAM/20250101000100_second.mp4",
+        ]
+        .into_iter()
+        .map(|path| ScanEntry::Video(item_from_path(PathBuf::from(path), Some(60_000))))
+        .collect::<Vec<_>>();
+
+        let groups = group_by_time(files, None);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].files.len(), 1);
+        assert_eq!(groups[1].files.len(), 1);
+    }
+
+    #[test]
+    fn group_by_time_uses_item_default_gap_when_caller_gap_missing() {
+        let files = [
+            "/src/CAM/20250101000000_000001AA.MP4",
+            "/src/CAM/20250101000100_000002AA.MP4",
+        ]
+        .into_iter()
+        .map(|path| ScanEntry::Video(item_from_path(PathBuf::from(path), Some(60_000))))
+        .collect::<Vec<_>>();
+
+        let groups = group_by_time(files, None);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].files.len(), 2);
     }
 
     #[test]
