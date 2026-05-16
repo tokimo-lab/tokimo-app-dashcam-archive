@@ -15,7 +15,8 @@ use crate::{db::repos::sources_repo::SourcesRepo, orchestrator::Orchestrator};
 type JobMap = Arc<Mutex<HashMap<Uuid, Uuid>>>;
 
 /// Set of source IDs with active pipeline runs for deduplication.
-type ActiveRuns = Arc<Mutex<HashSet<Uuid>>>;
+/// Shared with `WatcherSupervisor` so both supervisors guard against concurrent runs on the same source.
+pub type ActiveRuns = Arc<Mutex<HashSet<Uuid>>>;
 
 pub struct CronSupervisor {
     scheduler: JobScheduler,
@@ -150,6 +151,11 @@ impl CronSupervisor {
         self.scheduler.shutdown().await?;
         info!("dashcam-archive: CronSupervisor shutdown");
         Ok(())
+    }
+
+    /// Returns a clone of the shared active-runs set for use by `WatcherSupervisor`.
+    pub fn active_runs(&self) -> ActiveRuns {
+        Arc::clone(&self.active_runs)
     }
 }
 

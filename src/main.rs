@@ -99,7 +99,7 @@ async fn run_server() -> anyhow::Result<()> {
             .map_err(|error| anyhow::anyhow!("CronSupervisor::new: {error}"))?,
     );
     let watcher_supervisor = Arc::new(
-        WatcherSupervisor::new(db.clone(), ctx.orchestrator.clone())
+        WatcherSupervisor::new(db.clone(), ctx.orchestrator.clone(), cron_supervisor.active_runs())
             .await
             .map_err(|error| anyhow::anyhow!("WatcherSupervisor::new: {error}"))?,
     );
