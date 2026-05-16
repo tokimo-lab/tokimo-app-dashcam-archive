@@ -195,6 +195,7 @@ impl Pipeline {
                 serde_json::json!({
                     "job_id": run.id,
                     "progress": percent / 100.0,
+                    "message": format!("扫描: {}", file.path.display()),
                 }),
             )
             .await;
@@ -454,6 +455,7 @@ impl Pipeline {
                 serde_json::json!({
                     "job_id": run.id,
                     "progress": percent / 100.0,
+                    "message": format!("归并: {}", out_vfs.display()),
                 }),
             )
             .await;
