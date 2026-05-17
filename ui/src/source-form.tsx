@@ -83,6 +83,7 @@ function buildSourceReq(
     dst_source_type: data.dst?.sourceType ?? null,
     encoder: data.encoder,
     encoder_params: encoderParams,
+    preflight_bitrate_ref: data.preflight_bitrate_ref,
     max_gap_seconds: data.max_gap_seconds,
     max_group_duration_seconds: data.max_group_duration_seconds,
     monthly_subdirs: data.monthly_subdirs,
@@ -108,6 +109,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         dst_path: "",
         encoder: "auto",
         encoder_params: {},
+        preflight_bitrate_ref: 5000000,
         max_gap_seconds: 60,
         max_group_duration_seconds: 0,
         monthly_subdirs: "auto",
@@ -126,6 +128,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         dst_path: source.dst_path ?? "",
         encoder: source.encoder,
         encoder_params: source.encoder_params,
+        preflight_bitrate_ref: source.preflight_bitrate_ref,
         max_gap_seconds: source.max_gap_seconds,
         max_group_duration_seconds: source.max_group_duration_seconds,
         monthly_subdirs: source.monthly_subdirs,
@@ -433,6 +436,18 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
               onChange={(e) => setParamsJson(e.target.value)}
               rows={8}
               className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
+            />
+          </SettingRow>
+          <SettingRow
+            label="码率参考阈值（bps）"
+            desc="当输入平均码率低于此值的 1.1 倍时直接走 copy，避免徒劳编码。设 0 关闭此功能，所有输入都走编码。"
+          >
+            <InputNumber
+              value={data.preflight_bitrate_ref ?? 5000000}
+              onChange={(val) =>
+                setData({ ...data, preflight_bitrate_ref: val ?? 5000000 })
+              }
+              min={0}
             />
           </SettingRow>
         </SettingGroup>

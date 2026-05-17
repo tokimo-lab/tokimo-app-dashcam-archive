@@ -30,6 +30,7 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
                 dst_path TEXT NOT NULL,
                 encoder TEXT NOT NULL DEFAULT 'auto',
                 encoder_params JSONB NOT NULL DEFAULT '{{}}',
+                preflight_bitrate_ref INT NOT NULL DEFAULT 5000000,
                 max_gap_seconds INT NOT NULL DEFAULT 60,
                 max_group_duration_seconds INT NOT NULL DEFAULT 0,
                 monthly_subdirs TEXT NOT NULL DEFAULT 'auto',
@@ -56,6 +57,9 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
                 probed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 PRIMARY KEY(source_id, abs_path)
             )"#
+        ),
+        format!(
+            r#"ALTER TABLE {SCHEMA}.sources ADD COLUMN IF NOT EXISTS preflight_bitrate_ref INT NOT NULL DEFAULT 5000000"#
         ),
         format!(r#"ALTER TABLE {SCHEMA}.scan_cache ADD COLUMN IF NOT EXISTS codec TEXT"#),
         format!(r#"ALTER TABLE {SCHEMA}.scan_cache ADD COLUMN IF NOT EXISTS format_bps BIGINT"#),

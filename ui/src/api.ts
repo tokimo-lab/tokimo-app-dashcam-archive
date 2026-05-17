@@ -28,6 +28,7 @@ export interface SourceReq {
   dst_source_type?: string | null;
   encoder?: string;
   encoder_params?: Record<string, unknown>;
+  preflight_bitrate_ref?: number;
   max_gap_seconds?: number;
   max_group_duration_seconds?: number;
   monthly_subdirs?: "auto" | "on" | "off";
@@ -55,6 +56,7 @@ export interface SourceDto {
   dst_source_name?: string | null;
   encoder: string;
   encoder_params: Record<string, unknown>;
+  preflight_bitrate_ref: number;
   max_gap_seconds: number;
   max_group_duration_seconds: number;
   monthly_subdirs: "auto" | "on" | "off";

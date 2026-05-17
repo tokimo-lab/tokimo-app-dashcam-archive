@@ -312,7 +312,17 @@ impl Pipeline {
             )
             .await?;
             let out_vfs = vfs_join(&out_dir, Path::new(&create_combined_filename(group)));
-            let decision = decision_for_encoder(&source.encoder, group.files.len());
+
+            // Preflight bitrate gate: if preflight_bitrate_ref > 0 and input bitrate is low, skip encoding
+            // Only applies when input codec already matches target encoder output (H265/HEVC)
+            let should_preflight_copy =
+                should_preflight_copy_group(&group.files, &source.encoder, source.preflight_bitrate_ref);
+
+            let decision = if should_preflight_copy {
+                "preflight_copy"
+            } else {
+                decision_for_encoder(&source.encoder, group.files.len())
+            };
 
             let group_model = MergeRunsRepo::create_group(
                 &self.db,
@@ -373,8 +383,8 @@ impl Pipeline {
                                 &group.files,
                                 &inputs,
                                 &local_out,
-                                expected_duration_secs(&group.files),
                                 bsz,
+                                decision,
                                 cancel.clone(),
                             )
                             .await
@@ -395,8 +405,8 @@ impl Pipeline {
                         &group.files,
                         &inputs,
                         &local_out,
-                        expected_duration_secs(&group.files),
                         bsz,
+                        decision,
                         cancel.clone(),
                     )
                     .await
@@ -978,6 +988,7 @@ fn decision_for_encoder(encoder: &str, input_count: usize) -> &'static str {
 fn warn_log_mode_for_decision(decision: &str) -> &'static str {
     match decision {
         "encode_nvenc" | "encode_x265" => "compress",
+        "preflight_copy" => "concat_copy",
         _ => "concat_copy",
     }
 }
@@ -1075,6 +1086,89 @@ fn h264_group_input_bps(group_files: &[crate::core::grouping::VideoItem]) -> Opt
     i64::try_from(bps).ok()
 }
 
+fn is_h265_preflight_eligible(group_files: &[crate::core::grouping::VideoItem], encoder: &str) -> bool {
+    match encoder {
+        "nvenc-h265" | "x265-veryslow" => {
+            // For H265 encoders, only allow preflight copy if input is already H265/HEVC
+            !group_files.is_empty()
+                && group_files.iter().all(|item| {
+                    item.codec
+                        .as_deref()
+                        .is_some_and(|c| c.eq_ignore_ascii_case("hevc") || c.eq_ignore_ascii_case("h265"))
+                })
+        }
+        _ => {
+            // For non-H265 encoders (copy-only, auto, current, h264, etc.), no preflight copy
+            false
+        }
+    }
+}
+
+fn group_weighted_input_bps(group_files: &[crate::core::grouping::VideoItem]) -> Option<i64> {
+    if group_files.is_empty() {
+        return None;
+    }
+
+    let mut total_size_bytes = 0_i128;
+    let mut total_duration_ms = 0_i128;
+    for item in group_files {
+        let Some(size_bytes) = item.size_bytes.filter(|value| *value > 0) else {
+            continue;
+        };
+        let Some(duration_ms) = item.duration_ms.filter(|value| *value > 0) else {
+            continue;
+        };
+        total_size_bytes = total_size_bytes.checked_add(i128::from(size_bytes))?;
+        total_duration_ms = total_duration_ms.checked_add(i128::from(duration_ms))?;
+    }
+
+    if total_duration_ms <= 0 {
+        return None;
+    }
+
+    let bps = total_size_bytes.checked_mul(8)?.checked_mul(1_000)? / total_duration_ms;
+    i64::try_from(bps).ok()
+}
+
+fn group_format_bps_average(group_files: &[crate::core::grouping::VideoItem]) -> Option<i64> {
+    let mut total_bps = 0_i128;
+    let mut count = 0_i128;
+    for format_bps in group_files
+        .iter()
+        .filter_map(|item| item.format_bps.filter(|value| *value > 0))
+    {
+        total_bps = total_bps.checked_add(i128::from(format_bps))?;
+        count += 1;
+    }
+
+    if count == 0 {
+        return None;
+    }
+
+    i64::try_from(total_bps / count).ok()
+}
+
+fn should_preflight_copy_group(
+    group_files: &[crate::core::grouping::VideoItem],
+    encoder: &str,
+    preflight_bitrate_ref: i32,
+) -> bool {
+    if preflight_bitrate_ref <= 0 {
+        return false;
+    }
+
+    if !is_h265_preflight_eligible(group_files, encoder) {
+        return false;
+    }
+
+    let Some(avg_bps) = group_weighted_input_bps(group_files).or_else(|| group_format_bps_average(group_files)) else {
+        return false;
+    };
+
+    let threshold = (preflight_bitrate_ref as i64 * 11) / 10; // 1.1x
+    avg_bps < threshold
+}
+
 fn derive_h264_nvenc_profile(default_profile: &EncodeProfile, input_bps: i64) -> EncodeProfile {
     let target_from_input = (input_bps as f64 * H264_TARGET_RATIO) as i64;
     let default_target = parse_bps(&default_profile.bitrate);
@@ -1122,11 +1216,12 @@ async fn run_with_encoder(
     group_files: &[crate::core::grouping::VideoItem],
     inputs: &[PathBuf],
     out: &Path,
-    expected_duration: Option<f64>,
     input_size: i64,
+    decision: &str,
     cancel: CancellationToken,
 ) -> anyhow::Result<(WarningTracker, bool)> {
-    let attempts = encoder_attempts(source.encoder.as_str());
+    let attempts = encoder_attempts(source.encoder.as_str(), decision);
+    let expected_duration = expected_duration_secs(group_files);
     let Some(ffmpeg) = runner.paths().ffmpeg.as_deref() else {
         anyhow::bail!("ffmpeg binary is unavailable");
     };
@@ -1271,7 +1366,10 @@ async fn run_encoder_attempt(
     Ok(tracker)
 }
 
-fn encoder_attempts(encoder: &str) -> Vec<&'static str> {
+fn encoder_attempts(encoder: &str, decision: &str) -> Vec<&'static str> {
+    if decision == "preflight_copy" {
+        return vec!["copy"];
+    }
     match encoder {
         "nvenc-h265" => vec!["nvenc-h265", "x265-veryslow", "copy"],
         "x265-veryslow" => vec!["x265-veryslow", "copy"],
@@ -1450,6 +1548,175 @@ mod tests {
         ];
 
         assert_eq!(h264_group_input_bps(&group_files), None);
+    }
+
+    #[test]
+    fn preflight_h265_eligible_rejects_h264_for_h265_encoders() {
+        let group_files = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("h264".to_string()),
+            Some(8_000_000),
+            Some(1_000_000),
+        )];
+
+        assert!(!is_h265_preflight_eligible(&group_files, "nvenc-h265"));
+        assert!(!is_h265_preflight_eligible(&group_files, "x265-veryslow"));
+    }
+
+    #[test]
+    fn preflight_h265_eligible_accepts_hevc_for_h265_encoders() {
+        let group_files = vec![
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000000_a.mp4"),
+                Some(1_000),
+                Some("hevc".to_string()),
+                Some(8_000_000),
+                Some(1_000_000),
+            ),
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000001_b.mp4"),
+                Some(1_000),
+                Some("H265".to_string()),
+                Some(8_000_000),
+                Some(1_000_000),
+            ),
+        ];
+
+        assert!(is_h265_preflight_eligible(&group_files, "nvenc-h265"));
+        assert!(is_h265_preflight_eligible(&group_files, "x265-veryslow"));
+    }
+
+    #[test]
+    fn preflight_h265_eligible_rejects_non_h265_encoders() {
+        let hevc_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("hevc".to_string()),
+            Some(3_000_000),
+            Some(1_000_000),
+        )];
+
+        // Non-H265 encoders are never eligible for preflight copy
+        assert!(!is_h265_preflight_eligible(&hevc_group, "copy-only"));
+        assert!(!is_h265_preflight_eligible(&hevc_group, "auto"));
+        assert!(!is_h265_preflight_eligible(&hevc_group, "current"));
+        assert!(!is_h265_preflight_eligible(&hevc_group, "nvenc-h264"));
+    }
+
+    #[test]
+    fn preflight_copy_disabled_when_ref_is_zero() {
+        let hevc_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("hevc".to_string()),
+            Some(3_000_000), // Low bitrate
+            Some(1_000_000),
+        )];
+
+        // Even with low bitrate HEVC, disabled ref returns false
+        assert!(!should_preflight_copy_group(&hevc_group, "nvenc-h265", 0));
+    }
+
+    #[test]
+    fn preflight_copy_accepts_low_bitrate_hevc_below_threshold() {
+        let hevc_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("hevc".to_string()),
+            Some(4_000_000), // Below 5_000_000 * 1.1 = 5_500_000
+            Some(500_000),
+        )];
+
+        assert!(should_preflight_copy_group(&hevc_group, "nvenc-h265", 5_000_000));
+    }
+
+    #[test]
+    fn preflight_copy_prefers_weighted_bitrate_over_format_bps() {
+        let hevc_group = vec![
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000000_a.mp4"),
+                Some(1_000),
+                Some("hevc".to_string()),
+                Some(12_000_000),
+                Some(500_000),
+            ),
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000001_b.mp4"),
+                Some(1_000),
+                Some("h265".to_string()),
+                Some(12_000_000),
+                Some(500_000),
+            ),
+        ];
+
+        assert!(should_preflight_copy_group(&hevc_group, "nvenc-h265", 5_000_000));
+    }
+
+    #[test]
+    fn preflight_copy_falls_back_to_positive_format_bps_average() {
+        let hevc_group = vec![
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000000_a.mp4"),
+                None,
+                Some("hevc".to_string()),
+                Some(4_000_000),
+                None,
+            ),
+            crate::core::grouping::item_from_probe(
+                PathBuf::from("/src/AA/20250101000001_b.mp4"),
+                Some(1_000),
+                Some("h265".to_string()),
+                Some(4_500_000),
+                None,
+            ),
+        ];
+
+        assert!(should_preflight_copy_group(&hevc_group, "nvenc-h265", 5_000_000));
+    }
+
+    #[test]
+    fn preflight_copy_returns_false_without_weighted_or_format_bps() {
+        let hevc_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            None,
+            Some("hevc".to_string()),
+            Some(0),
+            Some(500_000),
+        )];
+
+        assert!(!should_preflight_copy_group(&hevc_group, "nvenc-h265", 5_000_000));
+    }
+
+    #[test]
+    fn preflight_copy_rejects_low_bitrate_h264_with_h265_encoder() {
+        let h264_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("h264".to_string()),
+            Some(3_000_000), // Low bitrate but wrong codec
+            Some(1_000_000),
+        )];
+
+        // Codec incompatibility trumps bitrate
+        assert!(!should_preflight_copy_group(&h264_group, "nvenc-h265", 5_000_000));
+    }
+
+    #[test]
+    fn preflight_copy_rejects_non_h265_encoders_regardless_of_codec_or_bitrate() {
+        let hevc_group = vec![crate::core::grouping::item_from_probe(
+            PathBuf::from("/src/AA/20250101000000_a.mp4"),
+            Some(1_000),
+            Some("hevc".to_string()),
+            Some(2_000_000), // Very low bitrate, well below threshold
+            Some(1_000_000),
+        )];
+
+        // Non-H265 encoders never preflight copy, even with HEVC input and low bitrate
+        assert!(!should_preflight_copy_group(&hevc_group, "copy-only", 5_000_000));
+        assert!(!should_preflight_copy_group(&hevc_group, "auto", 5_000_000));
+        assert!(!should_preflight_copy_group(&hevc_group, "current", 5_000_000));
+        assert!(!should_preflight_copy_group(&hevc_group, "nvenc-h264", 5_000_000));
     }
 
     #[test]

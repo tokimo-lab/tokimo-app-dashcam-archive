@@ -15,6 +15,7 @@ pub struct Model {
     pub dst_path: String,
     pub encoder: String,
     pub encoder_params: Json,
+    pub preflight_bitrate_ref: i32,
     pub max_gap_seconds: i32,
     pub max_group_duration_seconds: i32,
     pub monthly_subdirs: String,
