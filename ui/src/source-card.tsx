@@ -109,7 +109,7 @@ function getDryRunModalSize(event: MouseEvent<HTMLElement>): {
   const parentHeight = parentRect?.height ?? window.innerHeight;
 
   return {
-    width: Math.min(parentWidth * 0.9, 720),
+    width: Math.min(parentWidth * 0.9, 600),
     height: Math.min(parentHeight * 0.9, 800),
   };
 }
@@ -136,7 +136,6 @@ export function SourceCard({
   const [runStartedAt, setRunStartedAt] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
   const [enabled, setEnabled] = useState(source.enabled);
-  const [dryRunLoading, setDryRunLoading] = useState(false);
   const unsubRef = useRef<(() => void) | null>(null);
 
   const formatLabels: FormatLabels = {
@@ -273,7 +272,7 @@ export function SourceCard({
       kind: "dry-run",
       sourceId: source.id,
       dstPath: source.dst_path,
-      onLoadingChange: setDryRunLoading,
+      onLoadingChange: () => {},
     });
     shell.openModalWindow({
       component: () => import("./dry-run-modal-window"),
@@ -408,10 +407,10 @@ export function SourceCard({
               size="small"
               variant="dashed"
               onClick={handleDryRun}
-              disabled={!enabled || dryRunLoading}
+              disabled={!enabled}
               className="flex items-center gap-1"
             >
-              {dryRunLoading ? "..." : "模拟运行"}
+              模拟运行
             </Button>
           </>
         )}

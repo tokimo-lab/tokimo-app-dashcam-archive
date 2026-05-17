@@ -134,7 +134,7 @@ export default function DryRunModalWindow({ win }: { win: ShellWindowHandle }) {
         ) : groups.length === 0 ? (
           <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
         ) : (
-          <div className="divide-border divide-y">
+          <div className="divide-y divide-[rgba(255,255,255,0.08)]">
             {visibleGroups.map((group, pageIndex) => {
               const groupIndex = (currentPage - 1) * PAGE_SIZE + pageIndex;
               const fullOutput = dstDir
