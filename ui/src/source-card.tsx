@@ -4,7 +4,7 @@
  */
 import { Button, Modal, Progress, Switch, Tag, useToast } from "@tokimo/ui";
 import { History, Play, Settings, X } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   DryRunPlan,
   FormatLabels,
@@ -405,60 +405,46 @@ export function SourceCard({
         {dryRunPlan && dryRunPlan.groups.length === 0 ? (
           <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-border-base border-b text-left">
-                  <th className="pb-2 pr-4 font-medium">输出文件名</th>
-                  <th className="pb-2 pr-4 font-medium">输入数</th>
-                  <th className="pb-2 pr-4 font-medium">编码方式</th>
-                  <th className="pb-2 pr-4 font-medium">预估时长</th>
-                  <th className="pb-2 font-medium">预估大小</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dryRunPlan?.groups.map((group) => (
-                  <Fragment
-                    key={`${group.output_name}:${group.input_files.join("|")}`}
-                  >
-                    <tr>
-                      <td className="pt-2 pr-4 font-mono text-xs break-all">
-                        {group.output_name}
-                      </td>
-                      <td className="pt-2 pr-4">{group.input_files.length}</td>
-                      <td className="pt-2 pr-4 font-mono text-xs">
-                        {group.encoder}
-                      </td>
-                      <td className="pt-2 pr-4">
-                        {formatDuration(
-                          group.estimated_duration_ms / 1000,
-                          formatLabels,
-                        )}
-                      </td>
-                      <td className="pt-2">
-                        {formatBytes(group.estimated_size_bytes, formatLabels)}
-                      </td>
-                    </tr>
-                    <tr className="border-border-subtle border-b last:border-0">
-                      <td colSpan={5} className="py-2">
-                        <details>
-                          <summary className="text-fg-secondary hover:text-fg-primary cursor-pointer text-xs">
-                            展开 {group.input_files.length} 个文件
-                          </summary>
-                          <div className="mt-2 space-y-1 text-xs font-mono text-fg-muted">
-                            {group.input_files.map((file) => (
-                              <div key={file} className="break-all">
-                                {file}
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      </td>
-                    </tr>
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-4">
+            {dryRunPlan?.groups.map((group, idx) => {
+              const dstDir = (source.dst_path ?? "").replace(/\/+$/, "");
+              const fullOutput = dstDir
+                ? `${dstDir}/${group.output_name}`
+                : group.output_name;
+              return (
+                <div
+                  key={`${group.output_name}:${group.input_files.join("|")}`}
+                  className="border-border-subtle rounded-md border p-3"
+                >
+                  <div className="text-fg-muted mb-1 flex items-center justify-between text-xs">
+                    <span>
+                      组 #{idx + 1} · 输入 {group.input_files.length} 个
+                    </span>
+                    <span>
+                      {group.encoder} ·{" "}
+                      {formatDuration(
+                        group.estimated_duration_ms / 1000,
+                        formatLabels,
+                      )}{" "}
+                      · {formatBytes(group.estimated_size_bytes, formatLabels)}
+                    </span>
+                  </div>
+                  <div className="text-fg-secondary space-y-0.5 font-mono text-xs">
+                    {group.input_files.map((file) => (
+                      <div key={file} className="break-all">
+                        {file}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-fg-muted my-1 text-center text-lg leading-none">
+                    ↓
+                  </div>
+                  <div className="text-fg-primary font-mono text-xs break-all">
+                    {fullOutput}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Modal>
