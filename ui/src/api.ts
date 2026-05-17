@@ -29,7 +29,6 @@ export interface SourceReq {
   monthly_subdirs?: "auto" | "on" | "off";
   allow_combined_input?: boolean;
   no_broken_split?: boolean;
-  overwrite?: boolean;
   trigger_mode?: "manual_only" | "cron" | "watcher" | "cron+watcher";
   cron_expr?: string;
   watcher_debounce_secs?: number;
@@ -57,7 +56,6 @@ export interface SourceDto {
   monthly_subdirs: "auto" | "on" | "off";
   allow_combined_input: boolean;
   no_broken_split: boolean;
-  overwrite: boolean;
   trigger_mode: "manual_only" | "cron" | "watcher" | "cron+watcher";
   cron_expr: string | null;
   watcher_debounce_secs: number;

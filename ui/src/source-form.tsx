@@ -88,7 +88,6 @@ function buildSourceReq(
     monthly_subdirs: data.monthly_subdirs,
     allow_combined_input: data.allow_combined_input,
     no_broken_split: data.no_broken_split,
-    overwrite: data.overwrite,
     trigger_mode: data.trigger_mode,
     cron_expr: data.cron_expr,
     watcher_debounce_secs: data.watcher_debounce_secs,
@@ -114,7 +113,6 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         monthly_subdirs: "auto",
         allow_combined_input: false,
         no_broken_split: false,
-        overwrite: false,
         trigger_mode: "manual_only",
         cron_expr: "",
         watcher_debounce_secs: 60,
@@ -133,7 +131,6 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         monthly_subdirs: source.monthly_subdirs,
         allow_combined_input: source.allow_combined_input,
         no_broken_split: source.no_broken_split,
-        overwrite: source.overwrite,
         trigger_mode: source.trigger_mode,
         cron_expr: source.cron_expr ?? "",
         watcher_debounce_secs: source.watcher_debounce_secs,
@@ -401,15 +398,6 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
             <Switch
               checked={data.no_broken_split ?? false}
               onChange={(val) => setData({ ...data, no_broken_split: val })}
-            />
-          </SettingRow>
-          <SettingRow
-            label="覆盖已存在的输出文件（overwrite）"
-            desc="默认跳过已存在的输出。开启后总是重做（用于参数调整后重试）。"
-          >
-            <Switch
-              checked={data.overwrite ?? false}
-              onChange={(val) => setData({ ...data, overwrite: val })}
             />
           </SettingRow>
         </SettingGroup>
