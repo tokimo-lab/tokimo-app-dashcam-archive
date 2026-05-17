@@ -5,6 +5,7 @@
 import type { ShellApi } from "@tokimo/sdk";
 import { Button, Progress, Switch, Tag, useToast } from "@tokimo/ui";
 import { History, Play, Settings, X } from "lucide-react";
+import type { MouseEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { FormatLabels, ProgressEvent, RunDto, SourceDto } from "./api";
 import {
@@ -80,6 +81,37 @@ function relativeTime(dateStr: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function closestRectFromEvent(
+  event: MouseEvent<HTMLElement>,
+  selector: string,
+): DOMRect | null {
+  const currentMatch = event.currentTarget.closest(selector);
+  if (currentMatch) return currentMatch.getBoundingClientRect();
+
+  if (event.target instanceof Element) {
+    const targetMatch = event.target.closest(selector);
+    if (targetMatch) return targetMatch.getBoundingClientRect();
+  }
+
+  return null;
+}
+
+function getDryRunModalSize(event: MouseEvent<HTMLElement>): {
+  width: number;
+  height: number;
+} {
+  const parentRect =
+    closestRectFromEvent(event, "[data-window-id]") ??
+    closestRectFromEvent(event, "[data-third-party-app]");
+  const parentWidth = parentRect?.width ?? window.innerWidth;
+  const parentHeight = parentRect?.height ?? window.innerHeight;
+
+  return {
+    width: Math.min(parentWidth * 0.9, 1000),
+    height: Math.min(parentHeight * 0.9, 800),
+  };
 }
 
 function etaSeconds(startedAt: string, percent: number): number | null {
@@ -235,7 +267,8 @@ export function SourceCard({
     }
   };
 
-  const handleDryRun = () => {
+  const handleDryRun = (event: MouseEvent<HTMLElement>) => {
+    const { width, height } = getDryRunModalSize(event);
     const bridgeId = registerBridge({
       kind: "dry-run",
       sourceId: source.id,
@@ -245,8 +278,8 @@ export function SourceCard({
     shell.openModalWindow({
       component: () => import("./dry-run-modal-window"),
       title: "Dry Run 计划",
-      width: Math.min(window.innerWidth * 0.9, 1280),
-      height: window.innerHeight * 0.9,
+      width,
+      height,
       metadata: { bridgeId, locale },
     });
   };

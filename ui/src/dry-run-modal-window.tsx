@@ -134,7 +134,7 @@ export default function DryRunModalWindow({ win }: { win: ShellWindowHandle }) {
         ) : groups.length === 0 ? (
           <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {visibleGroups.map((group, pageIndex) => {
               const groupIndex = (currentPage - 1) * PAGE_SIZE + pageIndex;
               const fullOutput = dstDir
@@ -147,7 +147,7 @@ export default function DryRunModalWindow({ win }: { win: ShellWindowHandle }) {
                   key={`${group.output_name}:${group.input_files.join("|")}`}
                   className="border-border-subtle rounded-md border p-3"
                 >
-                  <div className="text-fg-muted mb-1 flex items-center justify-between gap-3 text-xs">
+                  <div className="text-fg-muted mb-0.5 flex items-center justify-between gap-3 text-xs">
                     <span>
                       组 #{groupIndex + 1}
                       {timeRange ? ` · ${timeRange}` : ""}
@@ -193,7 +193,7 @@ export default function DryRunModalWindow({ win }: { win: ShellWindowHandle }) {
                         </div>
                       ))}
                   </div>
-                  <div className="text-fg-primary mt-2 break-all font-mono text-xs">
+                  <div className="text-fg-primary mt-1.5 break-all font-mono text-xs">
                     {fullOutput}
                   </div>
                 </div>
