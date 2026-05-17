@@ -71,10 +71,22 @@ pub async fn dry_run_plan(db: &DatabaseConnection, source: sources::Model) -> an
     let (files, _) = scan_vfs(&src_vfs, &input).await?;
     let file_size_map: std::collections::HashMap<PathBuf, u64> =
         files.iter().map(|f| (f.path.clone(), f.info.size)).collect();
+    let resolver = DurationResolver::new(db.clone(), 4);
     let mut videos = Vec::new();
     for file in &files {
         if is_video_file(&file.path) {
-            videos.push(ScanEntry::Video(item_from_path(file.path.clone(), None)));
+            let probe = resolver.resolve_vfs(source.id, &src_vfs, &file.info).await?;
+            if probe.broken {
+                videos.push(ScanEntry::Broken(file.path.clone()));
+            } else {
+                videos.push(ScanEntry::Video(item_from_probe(
+                    file.path.clone(),
+                    probe.duration_secs.map(secs_to_ms),
+                    probe.codec,
+                    probe.format_bps,
+                    probe.size_bytes,
+                )));
+            }
         }
         // Non-video files are skipped in dry-run (no copy performed)
     }
@@ -93,18 +105,35 @@ pub async fn dry_run_plan(db: &DatabaseConnection, source: sources::Model) -> an
                 .iter()
                 .map(|item| item.path.to_string_lossy().to_string())
                 .collect();
-            let estimated_duration_ms = match (group.start, group.end) {
-                (Some(start), Some(end)) => {
-                    let ms = end.signed_duration_since(start).num_milliseconds();
-                    if ms > 0 { ms as u64 } else { 0 }
-                }
-                _ => 0,
-            };
+            let estimated_duration_ms = group
+                .files
+                .iter()
+                .try_fold(0_i64, |acc, item| {
+                    item.duration_ms.filter(|ms| *ms > 0).map(|ms| acc + ms)
+                })
+                .map(|ms| ms as u64)
+                .unwrap_or_else(|| match (group.start, group.end) {
+                    (Some(start), Some(end)) => {
+                        let ms = end.signed_duration_since(start).num_milliseconds();
+                        if ms > 0 { ms as u64 } else { 0 }
+                    }
+                    _ => 0,
+                });
             let estimated_size_bytes = group
                 .files
                 .iter()
-                .map(|item| *file_size_map.get(&item.path).unwrap_or(&0))
-                .sum::<u64>();
+                .try_fold(0_u64, |acc, item| {
+                    item.size_bytes
+                        .and_then(|size| u64::try_from(size).ok())
+                        .map(|size| acc + size)
+                })
+                .unwrap_or_else(|| {
+                    group
+                        .files
+                        .iter()
+                        .map(|item| *file_size_map.get(&item.path).unwrap_or(&0))
+                        .sum::<u64>()
+                });
             DryRunGroup {
                 output_name,
                 input_files,
