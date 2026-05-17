@@ -109,7 +109,7 @@ function getDryRunModalSize(event: MouseEvent<HTMLElement>): {
   const parentHeight = parentRect?.height ?? window.innerHeight;
 
   return {
-    width: Math.min(parentWidth * 0.9, 1000),
+    width: Math.min(parentWidth * 0.9, 720),
     height: Math.min(parentHeight * 0.9, 800),
   };
 }
