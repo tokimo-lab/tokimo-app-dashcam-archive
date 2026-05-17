@@ -22,7 +22,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 use crate::{
-    core::{encoder, ffmpeg::FfmpegPaths},
+    core::{encoder, ffmpeg::FfmpegPaths, pipeline},
     db::{
         entities::{merge_groups, merge_runs, sources, warnings},
         repos::{
@@ -395,6 +395,18 @@ pub async fn run_source(
     Ok(Json(RunCreatedResp {
         run_id: ctx.orchestrator.enqueue_run(id, user_id).await?,
     }))
+}
+pub async fn dry_run_source(
+    State(ctx): State<Arc<AppCtx>>,
+    Path(id): Path<Uuid>,
+    user: TokimoUser,
+) -> Result<Json<pipeline::DryRunPlan>, AppError> {
+    let user_id = parse_user_id(&user.user_id)?;
+    let source = SourcesRepo::get(&ctx.db, id, user_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("source not found"))?;
+    let plan = pipeline::dry_run_plan(&ctx.db, source).await?;
+    Ok(Json(plan))
 }
 pub async fn list_source_runs(
     State(ctx): State<Arc<AppCtx>>,

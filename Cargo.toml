@@ -38,6 +38,7 @@ tokimo-vfs = { path = "../../packages/tokimo-package-vfs/packages/fs" }
 tokimo-package-ffmpeg = { path = "../../packages/tokimo-package-ffmpeg" }
 notify-debouncer-full = "0.7"
 tokio-cron-scheduler = "0.15"
+ts-rs = { version = "12", features = ["serde-json-impl"] }
 
 [profile.release]
 lto       = "thin"

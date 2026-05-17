@@ -3,6 +3,10 @@
  * All types and fetch helpers for /api/apps/dashcam-archive endpoints.
  */
 
+import type { DryRunPlan } from "./generated/rust-types/DryRunPlan";
+
+export type { DryRunPlan };
+
 // ── DTOs ───────────────────────────────────────────────────────────────────
 
 export interface EncoderDto {
@@ -189,6 +193,12 @@ export async function deleteSource(id: string): Promise<void> {
 
 export async function runSource(id: string): Promise<RunStartResponse> {
   return fetchJson<RunStartResponse>(`/sources/${encodeURIComponent(id)}/run`, {
+    method: "POST",
+  });
+}
+
+export async function dryRun(id: string): Promise<DryRunPlan> {
+  return fetchJson<DryRunPlan>(`/sources/${encodeURIComponent(id)}/dry_run`, {
     method: "POST",
   });
 }

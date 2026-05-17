@@ -38,6 +38,7 @@ fn build_router(ctx: Arc<AppCtx>) -> Router {
                 .delete(handlers::delete_source),
         )
         .route("/sources/{id}/run", post(handlers::run_source))
+        .route("/sources/{id}/dry_run", post(handlers::dry_run_source))
         .route("/sources/{id}/runs", get(handlers::list_source_runs))
         .route("/runs/{id}", get(handlers::get_run))
         .route("/runs/{id}/cancel", post(handlers::cancel_run))

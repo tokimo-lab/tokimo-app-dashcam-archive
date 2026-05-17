@@ -2,12 +2,19 @@
  * Dashboard card for a single dashcam archive source.
  * Manages its own latest-run state and SSE subscription.
  */
-import { Button, Progress, Switch, Tag, useToast } from "@tokimo/ui";
+import { Button, Modal, Progress, Switch, Tag, useToast } from "@tokimo/ui";
 import { History, Play, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { FormatLabels, ProgressEvent, RunDto, SourceDto } from "./api";
+import type {
+  DryRunPlan,
+  FormatLabels,
+  ProgressEvent,
+  RunDto,
+  SourceDto,
+} from "./api";
 import {
   cancelRun,
+  dryRun,
   formatBytes,
   formatDuration,
   getSourceRuns,
@@ -98,6 +105,9 @@ export function SourceCard({
   const [runStartedAt, setRunStartedAt] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
   const [enabled, setEnabled] = useState(source.enabled);
+  const [dryRunPlan, setDryRunPlan] = useState<DryRunPlan | null>(null);
+  const [dryRunLoading, setDryRunLoading] = useState(false);
+  const [dryRunModalOpen, setDryRunModalOpen] = useState(false);
   const unsubRef = useRef<(() => void) | null>(null);
 
   const formatLabels: FormatLabels = {
@@ -228,6 +238,21 @@ export function SourceCard({
     }
   };
 
+  const handleDryRun = async () => {
+    setDryRunLoading(true);
+    try {
+      const plan = await dryRun(source.id);
+      setDryRunPlan(plan);
+      setDryRunModalOpen(true);
+    } catch (err) {
+      toast.error(
+        `模拟运行失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setDryRunLoading(false);
+    }
+  };
+
   const runStatus = isRunning ? "running" : (latestRun?.status ?? null);
   const percent = progress?.percent ?? 0;
   const eta =
@@ -338,15 +363,26 @@ export function SourceCard({
             {t("cardCancelRun")}
           </Button>
         ) : (
-          <Button
-            size="small"
-            onClick={handleRunNow}
-            disabled={!enabled}
-            className="flex items-center gap-1"
-          >
-            <Play size={14} />
-            {t("cardRunNow")}
-          </Button>
+          <>
+            <Button
+              size="small"
+              onClick={handleRunNow}
+              disabled={!enabled}
+              className="flex items-center gap-1"
+            >
+              <Play size={14} />
+              {t("cardRunNow")}
+            </Button>
+            <Button
+              size="small"
+              variant="dashed"
+              onClick={handleDryRun}
+              disabled={!enabled || dryRunLoading}
+              className="flex items-center gap-1"
+            >
+              {dryRunLoading ? "..." : "模拟运行"}
+            </Button>
+          </>
         )}
         <Button
           size="small"
@@ -358,6 +394,53 @@ export function SourceCard({
           {t("cardViewHistory")}
         </Button>
       </div>
+
+      <Modal
+        open={dryRunModalOpen}
+        onCancel={() => setDryRunModalOpen(false)}
+        title="模拟运行结果（不会写入文件）"
+        width={720}
+        footer={<Button onClick={() => setDryRunModalOpen(false)}>关闭</Button>}
+      >
+        {dryRunPlan && dryRunPlan.groups.length === 0 ? (
+          <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-border-base border-b text-left">
+                  <th className="pb-2 pr-4 font-medium">输出文件名</th>
+                  <th className="pb-2 pr-4 font-medium">输入数</th>
+                  <th className="pb-2 pr-4 font-medium">预估时长</th>
+                  <th className="pb-2 font-medium">预估大小</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dryRunPlan?.groups.map((group) => (
+                  <tr
+                    key={`${group.output_name}:${group.input_files.join("|")}`}
+                    className="border-border-subtle border-b last:border-0"
+                  >
+                    <td className="py-2 pr-4 font-mono text-xs break-all">
+                      {group.output_name}
+                    </td>
+                    <td className="py-2 pr-4">{group.input_files.length}</td>
+                    <td className="py-2 pr-4">
+                      {formatDuration(
+                        group.estimated_duration_ms / 1000,
+                        formatLabels,
+                      )}
+                    </td>
+                    <td className="py-2">
+                      {formatBytes(group.estimated_size_bytes, formatLabels)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

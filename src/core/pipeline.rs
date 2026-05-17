@@ -27,7 +27,7 @@ use crate::{
             CancellationToken, FfmpegRunError, FfmpegRunner, NegativeCompressionOptions, WarningTracker,
             default_concat_input_flags, nvenc_concat_input_flags,
         },
-        grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_probe},
+        grouping::{ScanEntry, create_combined_filename, group_by_time, item_from_path, item_from_probe},
         naming::{is_video_file, parse_filename},
         report::RunReport,
         vfs_source,
@@ -40,6 +40,80 @@ use crate::{
         },
     },
 };
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct DryRunGroup {
+    pub output_name: String,
+    pub input_files: Vec<String>,
+    #[ts(type = "number")]
+    pub estimated_duration_ms: u64,
+    #[ts(type = "number")]
+    pub estimated_size_bytes: u64,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct DryRunPlan {
+    pub groups: Vec<DryRunGroup>,
+}
+
+pub async fn dry_run_plan(db: &DatabaseConnection, source: sources::Model) -> anyhow::Result<DryRunPlan> {
+    if !source.allow_combined_input {
+        let src_path_lower = source.src_path.trim_end_matches(['/', '\\']).to_lowercase();
+        if src_path_lower.contains("_combined") {
+            anyhow::bail!("_Combined input rejected (set allow_combined_input=true to override)");
+        }
+    }
+    let src_vfs = vfs_source::build_vfs(db, source.src_source_id, &source.src_source_type).await?;
+    let input = PathBuf::from(&source.src_path);
+    let (files, _) = scan_vfs(&src_vfs, &input).await?;
+    let file_size_map: std::collections::HashMap<PathBuf, u64> =
+        files.iter().map(|f| (f.path.clone(), f.info.size)).collect();
+    let mut videos = Vec::new();
+    for file in &files {
+        if is_video_file(&file.path) {
+            videos.push(ScanEntry::Video(item_from_path(file.path.clone(), None)));
+        }
+        // Non-video files are skipped in dry-run (no copy performed)
+    }
+    let gap = if source.max_gap_seconds > 0 {
+        Some(Duration::from_secs(u64::try_from(source.max_gap_seconds).unwrap_or(60)))
+    } else {
+        None
+    };
+    let groups = group_by_time(videos, gap);
+    let dry_groups = groups
+        .iter()
+        .map(|group| {
+            let output_name = create_combined_filename(group);
+            let input_files = group
+                .files
+                .iter()
+                .map(|item| item.path.to_string_lossy().to_string())
+                .collect();
+            let estimated_duration_ms = match (group.start, group.end) {
+                (Some(start), Some(end)) => {
+                    let ms = end.signed_duration_since(start).num_milliseconds();
+                    if ms > 0 { ms as u64 } else { 0 }
+                }
+                _ => 0,
+            };
+            let estimated_size_bytes = group
+                .files
+                .iter()
+                .map(|item| *file_size_map.get(&item.path).unwrap_or(&0))
+                .sum::<u64>();
+            DryRunGroup {
+                output_name,
+                input_files,
+                estimated_duration_ms,
+                estimated_size_bytes,
+            }
+        })
+        .collect();
+    Ok(DryRunPlan { groups: dry_groups })
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProgressEvent {
