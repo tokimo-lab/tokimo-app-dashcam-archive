@@ -164,6 +164,8 @@ export function Dashboard({ shell, t, locale }: Props) {
                 }}
                 onViewHistory={() => openHistory(source)}
                 t={t}
+                shell={shell}
+                locale={locale}
               />
             ))}
           </div>

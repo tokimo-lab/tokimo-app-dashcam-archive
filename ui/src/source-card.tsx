@@ -2,19 +2,13 @@
  * Dashboard card for a single dashcam archive source.
  * Manages its own latest-run state and SSE subscription.
  */
-import { Button, Modal, Progress, Switch, Tag, useToast } from "@tokimo/ui";
+import type { ShellApi } from "@tokimo/sdk";
+import { Button, Progress, Switch, Tag, useToast } from "@tokimo/ui";
 import { History, Play, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type {
-  DryRunPlan,
-  FormatLabels,
-  ProgressEvent,
-  RunDto,
-  SourceDto,
-} from "./api";
+import type { FormatLabels, ProgressEvent, RunDto, SourceDto } from "./api";
 import {
   cancelRun,
-  dryRun,
   formatBytes,
   formatDuration,
   getSourceRuns,
@@ -22,6 +16,7 @@ import {
   subscribeRunProgress,
   updateSource,
 } from "./api";
+import { registerBridge } from "./modal-bridge";
 
 interface Props {
   source: SourceDto;
@@ -29,6 +24,8 @@ interface Props {
   onToggle: (enabled: boolean) => void;
   onViewHistory: () => void;
   t: (key: string) => string;
+  shell: ShellApi;
+  locale: string;
 }
 
 function pathSummary(source: SourceDto): string {
@@ -97,6 +94,8 @@ export function SourceCard({
   onToggle,
   onViewHistory,
   t,
+  shell,
+  locale,
 }: Props) {
   const toast = useToast();
   const [latestRun, setLatestRun] = useState<RunDto | null>(null);
@@ -105,10 +104,7 @@ export function SourceCard({
   const [runStartedAt, setRunStartedAt] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
   const [enabled, setEnabled] = useState(source.enabled);
-  const [dryRunPlan, setDryRunPlan] = useState<DryRunPlan | null>(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
-  const [dryRunModalOpen, setDryRunModalOpen] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const unsubRef = useRef<(() => void) | null>(null);
 
   const formatLabels: FormatLabels = {
@@ -239,19 +235,20 @@ export function SourceCard({
     }
   };
 
-  const handleDryRun = async () => {
-    setDryRunLoading(true);
-    try {
-      const plan = await dryRun(source.id);
-      setDryRunPlan(plan);
-      setDryRunModalOpen(true);
-    } catch (err) {
-      toast.error(
-        `模拟运行失败: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      setDryRunLoading(false);
-    }
+  const handleDryRun = () => {
+    const bridgeId = registerBridge({
+      kind: "dry-run",
+      sourceId: source.id,
+      dstPath: source.dst_path,
+      onLoadingChange: setDryRunLoading,
+    });
+    shell.openModalWindow({
+      component: () => import("./dry-run-modal-window"),
+      title: "Dry Run 计划",
+      width: Math.min(window.innerWidth * 0.9, 1280),
+      height: window.innerHeight * 0.9,
+      metadata: { bridgeId, locale },
+    });
   };
 
   const runStatus = isRunning ? "running" : (latestRun?.status ?? null);
@@ -395,82 +392,6 @@ export function SourceCard({
           {t("cardViewHistory")}
         </Button>
       </div>
-
-      <Modal
-        open={dryRunModalOpen}
-        onCancel={() => setDryRunModalOpen(false)}
-        title="模拟运行结果（不会写入文件）"
-        width={720}
-        footer={<Button onClick={() => setDryRunModalOpen(false)}>关闭</Button>}
-      >
-        {dryRunPlan && dryRunPlan.groups.length === 0 ? (
-          <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
-        ) : (
-          <div className="space-y-3">
-            {dryRunPlan?.groups.map((group, idx) => {
-              const dstDir = (source.dst_path ?? "").replace(/\/+$/, "");
-              const fullOutput = dstDir
-                ? `${dstDir}/${group.output_name}`
-                : group.output_name;
-              const extra = group.input_files.length - 1;
-              const isExpanded = expandedGroups.has(idx);
-              return (
-                <div
-                  key={`${group.output_name}:${group.input_files.join("|")}`}
-                  className="border-border-subtle rounded-md border p-3"
-                >
-                  <div className="text-fg-muted mb-1 flex items-center justify-between text-xs">
-                    <span>组 #{idx + 1}</span>
-                    <span>
-                      {group.encoder} ·{" "}
-                      {formatDuration(
-                        group.estimated_duration_ms / 1000,
-                        formatLabels,
-                      )}{" "}
-                      · {formatBytes(group.estimated_size_bytes, formatLabels)}
-                    </span>
-                  </div>
-                  <div className="text-fg-secondary space-y-0.5 font-mono text-xs">
-                    <div className="flex items-start gap-2">
-                      <span className="flex-1 break-all">
-                        {group.input_files[0]}
-                      </span>
-                      {extra > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setExpandedGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(idx)) {
-                                next.delete(idx);
-                              } else {
-                                next.add(idx);
-                              }
-                              return next;
-                            });
-                          }}
-                          className="text-fg-muted hover:text-fg-primary flex shrink-0 cursor-pointer items-center gap-0.5 text-xs"
-                        >
-                          (+{extra}){isExpanded ? " ▲" : " ▼"}
-                        </button>
-                      )}
-                    </div>
-                    {isExpanded &&
-                      group.input_files.slice(1).map((file) => (
-                        <div key={file} className="break-all">
-                          {file}
-                        </div>
-                      ))}
-                  </div>
-                  <div className="text-fg-primary mt-2 font-mono text-xs break-all">
-                    {fullOutput}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

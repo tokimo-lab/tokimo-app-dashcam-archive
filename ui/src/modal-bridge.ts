@@ -15,7 +15,14 @@ interface HistoryBridge {
   sourceName: string;
 }
 
-export type ModalBridge = SourceSettingsBridge | HistoryBridge;
+interface DryRunBridge {
+  kind: "dry-run";
+  sourceId: string;
+  dstPath: string | null;
+  onLoadingChange: (loading: boolean) => void;
+}
+
+export type ModalBridge = SourceSettingsBridge | HistoryBridge | DryRunBridge;
 
 const registry = new Map<string, ModalBridge>();
 let counter = 0;

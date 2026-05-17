@@ -290,13 +290,13 @@ export function formatDuration(
   >,
 ): string {
   if (seconds == null) return labels.empty;
-  if (seconds < 60) return `${seconds}${labels.secondUnit}`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m < 60) {
-    return `${m}${labels.minuteUnit}${labels.durationPartsSeparator}${s}${labels.secondUnit}`;
-  }
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return `${h}${labels.hourUnit}${labels.durationPartsSeparator}${rm}${labels.minuteUnit}`;
+  const totalSeconds = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}${labels.hourUnit}`);
+  if (hours > 0 || minutes > 0) parts.push(`${minutes}${labels.minuteUnit}`);
+  parts.push(`${secs}${labels.secondUnit}`);
+  return parts.join(labels.durationPartsSeparator);
 }
