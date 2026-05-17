@@ -108,6 +108,7 @@ export function SourceCard({
   const [dryRunPlan, setDryRunPlan] = useState<DryRunPlan | null>(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
   const [dryRunModalOpen, setDryRunModalOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const unsubRef = useRef<(() => void) | null>(null);
 
   const formatLabels: FormatLabels = {
@@ -405,21 +406,21 @@ export function SourceCard({
         {dryRunPlan && dryRunPlan.groups.length === 0 ? (
           <p className="text-fg-muted text-sm">未找到可归并的视频文件。</p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {dryRunPlan?.groups.map((group, idx) => {
               const dstDir = (source.dst_path ?? "").replace(/\/+$/, "");
               const fullOutput = dstDir
                 ? `${dstDir}/${group.output_name}`
                 : group.output_name;
+              const extra = group.input_files.length - 1;
+              const isExpanded = expandedGroups.has(idx);
               return (
                 <div
                   key={`${group.output_name}:${group.input_files.join("|")}`}
                   className="border-border-subtle rounded-md border p-3"
                 >
                   <div className="text-fg-muted mb-1 flex items-center justify-between text-xs">
-                    <span>
-                      组 #{idx + 1} · 输入 {group.input_files.length} 个
-                    </span>
+                    <span>组 #{idx + 1}</span>
                     <span>
                       {group.encoder} ·{" "}
                       {formatDuration(
@@ -430,16 +431,38 @@ export function SourceCard({
                     </span>
                   </div>
                   <div className="text-fg-secondary space-y-0.5 font-mono text-xs">
-                    {group.input_files.map((file) => (
-                      <div key={file} className="break-all">
-                        {file}
-                      </div>
-                    ))}
+                    <div className="flex items-start gap-2">
+                      <span className="flex-1 break-all">
+                        {group.input_files[0]}
+                      </span>
+                      {extra > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedGroups((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(idx)) {
+                                next.delete(idx);
+                              } else {
+                                next.add(idx);
+                              }
+                              return next;
+                            });
+                          }}
+                          className="text-fg-muted hover:text-fg-primary flex shrink-0 cursor-pointer items-center gap-0.5 text-xs"
+                        >
+                          (+{extra}){isExpanded ? " ▲" : " ▼"}
+                        </button>
+                      )}
+                    </div>
+                    {isExpanded &&
+                      group.input_files.slice(1).map((file) => (
+                        <div key={file} className="break-all">
+                          {file}
+                        </div>
+                      ))}
                   </div>
-                  <div className="text-fg-muted my-1 text-center text-lg leading-none">
-                    ↓
-                  </div>
-                  <div className="text-fg-primary font-mono text-xs break-all">
+                  <div className="text-fg-primary mt-2 font-mono text-xs break-all">
                     {fullOutput}
                   </div>
                 </div>
