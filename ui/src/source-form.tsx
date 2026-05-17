@@ -84,6 +84,7 @@ function buildSourceReq(
     encoder: data.encoder,
     encoder_params: encoderParams,
     preflight_bitrate_ref: data.preflight_bitrate_ref,
+    hybrid_health_check: data.hybrid_health_check,
     max_gap_seconds: data.max_gap_seconds,
     max_group_duration_seconds: data.max_group_duration_seconds,
     monthly_subdirs: data.monthly_subdirs,
@@ -110,6 +111,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         encoder: "auto",
         encoder_params: {},
         preflight_bitrate_ref: 5000000,
+        hybrid_health_check: true,
         max_gap_seconds: 60,
         max_group_duration_seconds: 0,
         monthly_subdirs: "auto",
@@ -129,6 +131,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
         encoder: source.encoder,
         encoder_params: source.encoder_params,
         preflight_bitrate_ref: source.preflight_bitrate_ref,
+        hybrid_health_check: source.hybrid_health_check,
         max_gap_seconds: source.max_gap_seconds,
         max_group_duration_seconds: source.max_group_duration_seconds,
         monthly_subdirs: source.monthly_subdirs,
@@ -448,6 +451,15 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                 setData({ ...data, preflight_bitrate_ref: val ?? 5000000 })
               }
               min={0}
+            />
+          </SettingRow>
+          <SettingRow
+            label="启用混合模式（预扫输入健康度）"
+            desc="开启后会先 ffprobe 每个输入文件，坏文件走 copy 安全分支。关闭后压缩模式下坏文件也强制 NVENC（仅极端 debug 用）。"
+          >
+            <Switch
+              checked={data.hybrid_health_check ?? true}
+              onChange={(val) => setData({ ...data, hybrid_health_check: val })}
             />
           </SettingRow>
         </SettingGroup>

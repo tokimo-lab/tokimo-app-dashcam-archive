@@ -31,6 +31,7 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
                 encoder TEXT NOT NULL DEFAULT 'auto',
                 encoder_params JSONB NOT NULL DEFAULT '{{}}',
                 preflight_bitrate_ref INT NOT NULL DEFAULT 5000000,
+                hybrid_health_check BOOL NOT NULL DEFAULT true,
                 max_gap_seconds INT NOT NULL DEFAULT 60,
                 max_group_duration_seconds INT NOT NULL DEFAULT 0,
                 monthly_subdirs TEXT NOT NULL DEFAULT 'auto',
@@ -60,6 +61,9 @@ pub async fn init_schema(db: &DatabaseConnection) -> anyhow::Result<()> {
         ),
         format!(
             r#"ALTER TABLE {SCHEMA}.sources ADD COLUMN IF NOT EXISTS preflight_bitrate_ref INT NOT NULL DEFAULT 5000000"#
+        ),
+        format!(
+            r#"ALTER TABLE IF EXISTS {SCHEMA}.sources ADD COLUMN IF NOT EXISTS hybrid_health_check BOOL NOT NULL DEFAULT true"#
         ),
         format!(r#"ALTER TABLE {SCHEMA}.scan_cache ADD COLUMN IF NOT EXISTS codec TEXT"#),
         format!(r#"ALTER TABLE {SCHEMA}.scan_cache ADD COLUMN IF NOT EXISTS format_bps BIGINT"#),

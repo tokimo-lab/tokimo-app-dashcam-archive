@@ -29,6 +29,7 @@ export interface SourceReq {
   encoder?: string;
   encoder_params?: Record<string, unknown>;
   preflight_bitrate_ref?: number;
+  hybrid_health_check?: boolean;
   max_gap_seconds?: number;
   max_group_duration_seconds?: number;
   monthly_subdirs?: "auto" | "on" | "off";
@@ -57,6 +58,7 @@ export interface SourceDto {
   encoder: string;
   encoder_params: Record<string, unknown>;
   preflight_bitrate_ref: number;
+  hybrid_health_check: boolean;
   max_gap_seconds: number;
   max_group_duration_seconds: number;
   monthly_subdirs: "auto" | "on" | "off";

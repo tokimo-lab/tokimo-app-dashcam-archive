@@ -232,24 +232,30 @@ impl Pipeline {
         let total_files = files.len().max(1);
         let file_size_map: std::collections::HashMap<PathBuf, u64> =
             files.iter().map(|f| (f.path.clone(), f.info.size)).collect();
-        let resolver = DurationResolver::new(self.db.clone(), 4);
+        let resolver = source
+            .hybrid_health_check
+            .then(|| DurationResolver::new(self.db.clone(), 4));
         let mut videos = Vec::new();
         for (idx, file) in files.iter().enumerate() {
             if cancel.is_cancelled() {
                 anyhow::bail!("cancelled");
             }
             if is_video_file(&file.path) {
-                let probe = resolver.resolve_vfs(source.id, &src_vfs, &file.info).await?;
-                if probe.broken {
-                    videos.push(ScanEntry::Broken(file.path.clone()));
+                if let Some(resolver) = &resolver {
+                    let probe = resolver.resolve_vfs(source.id, &src_vfs, &file.info).await?;
+                    if probe.broken {
+                        videos.push(ScanEntry::Broken(file.path.clone()));
+                    } else {
+                        videos.push(ScanEntry::Video(item_from_probe(
+                            file.path.clone(),
+                            probe.duration_secs.map(secs_to_ms),
+                            probe.codec,
+                            probe.format_bps,
+                            probe.size_bytes,
+                        )));
+                    }
                 } else {
-                    videos.push(ScanEntry::Video(item_from_probe(
-                        file.path.clone(),
-                        probe.duration_secs.map(secs_to_ms),
-                        probe.codec,
-                        probe.format_bps,
-                        probe.size_bytes,
-                    )));
+                    videos.push(ScanEntry::Video(item_from_path(file.path.clone(), None)));
                 }
             } else {
                 copy_non_video_vfs(&src_vfs, &dst_vfs, &input, &output, file).await?;
@@ -315,8 +321,8 @@ impl Pipeline {
 
             // Preflight bitrate gate: if preflight_bitrate_ref > 0 and input bitrate is low, skip encoding
             // Only applies when input codec already matches target encoder output (H265/HEVC)
-            let should_preflight_copy =
-                should_preflight_copy_group(&group.files, &source.encoder, source.preflight_bitrate_ref);
+            let should_preflight_copy = source.hybrid_health_check
+                && should_preflight_copy_group(&group.files, &source.encoder, source.preflight_bitrate_ref);
 
             let decision = if should_preflight_copy {
                 "preflight_copy"

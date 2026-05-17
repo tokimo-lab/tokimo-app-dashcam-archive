@@ -18,6 +18,7 @@ pub struct SourceInput {
     pub encoder: String,
     pub encoder_params: Value,
     pub preflight_bitrate_ref: i32,
+    pub hybrid_health_check: bool,
     pub max_gap_seconds: i32,
     pub max_group_duration_seconds: i32,
     pub monthly_subdirs: String,
@@ -71,6 +72,7 @@ impl SourcesRepo {
             encoder: Set(input.encoder),
             encoder_params: Set(input.encoder_params),
             preflight_bitrate_ref: Set(input.preflight_bitrate_ref),
+            hybrid_health_check: Set(input.hybrid_health_check),
             max_gap_seconds: Set(input.max_gap_seconds),
             max_group_duration_seconds: Set(input.max_group_duration_seconds),
             monthly_subdirs: Set(input.monthly_subdirs),
@@ -106,6 +108,7 @@ impl SourcesRepo {
         model.encoder = Set(input.encoder);
         model.encoder_params = Set(input.encoder_params);
         model.preflight_bitrate_ref = Set(input.preflight_bitrate_ref);
+        model.hybrid_health_check = Set(input.hybrid_health_check);
         model.max_gap_seconds = Set(input.max_gap_seconds);
         model.max_group_duration_seconds = Set(input.max_group_duration_seconds);
         model.monthly_subdirs = Set(input.monthly_subdirs);
