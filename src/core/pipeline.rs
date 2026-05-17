@@ -47,6 +47,8 @@ pub struct DryRunGroup {
     pub output_name: String,
     pub input_files: Vec<String>,
     pub encoder: String,
+    pub start_at: Option<String>,
+    pub end_at: Option<String>,
     #[ts(type = "number")]
     pub estimated_duration_ms: u64,
     #[ts(type = "number")]
@@ -138,6 +140,8 @@ pub async fn dry_run_plan(db: &DatabaseConnection, source: sources::Model) -> an
                 output_name,
                 input_files,
                 encoder: source.encoder.clone(),
+                start_at: group.start.map(|dt| dt.to_rfc3339()),
+                end_at: group.end.map(|dt| dt.to_rfc3339()),
                 estimated_duration_ms,
                 estimated_size_bytes,
             }
