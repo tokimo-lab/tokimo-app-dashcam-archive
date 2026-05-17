@@ -4,7 +4,7 @@
  */
 import { Button, Modal, Progress, Switch, Tag, useToast } from "@tokimo/ui";
 import { History, Play, Settings, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type {
   DryRunPlan,
   FormatLabels,
@@ -411,30 +411,51 @@ export function SourceCard({
                 <tr className="border-border-base border-b text-left">
                   <th className="pb-2 pr-4 font-medium">输出文件名</th>
                   <th className="pb-2 pr-4 font-medium">输入数</th>
+                  <th className="pb-2 pr-4 font-medium">编码方式</th>
                   <th className="pb-2 pr-4 font-medium">预估时长</th>
                   <th className="pb-2 font-medium">预估大小</th>
                 </tr>
               </thead>
               <tbody>
                 {dryRunPlan?.groups.map((group) => (
-                  <tr
+                  <Fragment
                     key={`${group.output_name}:${group.input_files.join("|")}`}
-                    className="border-border-subtle border-b last:border-0"
                   >
-                    <td className="py-2 pr-4 font-mono text-xs break-all">
-                      {group.output_name}
-                    </td>
-                    <td className="py-2 pr-4">{group.input_files.length}</td>
-                    <td className="py-2 pr-4">
-                      {formatDuration(
-                        group.estimated_duration_ms / 1000,
-                        formatLabels,
-                      )}
-                    </td>
-                    <td className="py-2">
-                      {formatBytes(group.estimated_size_bytes, formatLabels)}
-                    </td>
-                  </tr>
+                    <tr>
+                      <td className="pt-2 pr-4 font-mono text-xs break-all">
+                        {group.output_name}
+                      </td>
+                      <td className="pt-2 pr-4">{group.input_files.length}</td>
+                      <td className="pt-2 pr-4 font-mono text-xs">
+                        {group.encoder}
+                      </td>
+                      <td className="pt-2 pr-4">
+                        {formatDuration(
+                          group.estimated_duration_ms / 1000,
+                          formatLabels,
+                        )}
+                      </td>
+                      <td className="pt-2">
+                        {formatBytes(group.estimated_size_bytes, formatLabels)}
+                      </td>
+                    </tr>
+                    <tr className="border-border-subtle border-b last:border-0">
+                      <td colSpan={5} className="py-2">
+                        <details>
+                          <summary className="text-fg-secondary hover:text-fg-primary cursor-pointer text-xs">
+                            展开 {group.input_files.length} 个文件
+                          </summary>
+                          <div className="mt-2 space-y-1 text-xs font-mono text-fg-muted">
+                            {group.input_files.map((file) => (
+                              <div key={file} className="break-all">
+                                {file}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

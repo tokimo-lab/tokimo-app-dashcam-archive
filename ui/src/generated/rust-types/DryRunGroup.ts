@@ -3,6 +3,7 @@
 export type DryRunGroup = {
   output_name: string;
   input_files: Array<string>;
+  encoder: string;
   estimated_duration_ms: number;
   estimated_size_bytes: number;
 };

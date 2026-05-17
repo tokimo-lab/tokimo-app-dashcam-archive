@@ -46,6 +46,7 @@ use crate::{
 pub struct DryRunGroup {
     pub output_name: String,
     pub input_files: Vec<String>,
+    pub encoder: String,
     #[ts(type = "number")]
     pub estimated_duration_ms: u64,
     #[ts(type = "number")]
@@ -107,6 +108,7 @@ pub async fn dry_run_plan(db: &DatabaseConnection, source: sources::Model) -> an
             DryRunGroup {
                 output_name,
                 input_files,
+                encoder: source.encoder.clone(),
                 estimated_duration_ms,
                 estimated_size_bytes,
             }
