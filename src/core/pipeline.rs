@@ -154,7 +154,7 @@ impl Pipeline {
         let _ = dst_vfs.mkdir(&output).await;
         self.emit(run.id, "scan", 0, 0, 0, None, 0.0);
 
-        let files = scan_vfs(&src_vfs, &input).await?;
+        let (files, zero_byte_paths) = scan_vfs(&src_vfs, &input).await?;
         let total_files = files.len().max(1);
         let file_size_map: std::collections::HashMap<PathBuf, u64> =
             files.iter().map(|f| (f.path.clone(), f.info.size)).collect();
@@ -215,6 +215,8 @@ impl Pipeline {
             })
             .collect::<Vec<_>>();
 
+        let mut zero_byte_warnings = zero_byte_paths;
+
         let groups = group_by_time(videos, gap);
         let runner = FfmpegRunner::new(self.paths.read().await.clone());
         let mut ok_count = 0_usize;
@@ -248,7 +250,8 @@ impl Pipeline {
             .await?;
 
             let had_broken_warnings = !broken_paths.is_empty();
-            let group_warning_examples = broken_paths
+            let had_zero_byte_warnings = !zero_byte_warnings.is_empty();
+            let mut group_warning_examples = broken_paths
                 .drain(..)
                 .map(|broken_path| {
                     (
@@ -257,6 +260,11 @@ impl Pipeline {
                     )
                 })
                 .collect::<Vec<_>>();
+            group_warning_examples.extend(
+                zero_byte_warnings
+                    .drain(..)
+                    .map(|msg| ("zero_byte_file_skipped".to_string(), msg)),
+            );
 
             let group_stage = staging.join(format!("group-{idx}"));
             tokio::fs::create_dir_all(&group_stage).await?;
@@ -365,8 +373,24 @@ impl Pipeline {
                         )
                         .await?;
                     }
+
+                    if let Err(e) = inherit_file_times(&src_vfs, &group.files, &local_out).await {
+                        tracing::warn!(error = ?e, "failed to inherit source file times");
+                    }
+
                     upload_local_file(&dst_vfs, &local_out, &out_vfs).await?;
-                    let warning_level = if fallback_used || !warning_summaries.is_empty() || had_broken_warnings {
+
+                    if let Some(dst_real_path) = dst_vfs.resolve_real_path(&out_vfs).await
+                        && let Err(e) = inherit_file_times(&src_vfs, &group.files, Path::new(&dst_real_path)).await
+                    {
+                        tracing::warn!(error = ?e, "failed to set destination file times");
+                    }
+
+                    let warning_level = if fallback_used
+                        || !warning_summaries.is_empty()
+                        || had_broken_warnings
+                        || had_zero_byte_warnings
+                    {
                         "warn"
                     } else {
                         "clean"
@@ -461,11 +485,11 @@ impl Pipeline {
             .await;
         }
 
-        if !broken_paths.is_empty() && groups.is_empty() {
+        if (!broken_paths.is_empty() || !zero_byte_warnings.is_empty()) && groups.is_empty() {
             let group_model = MergeRunsRepo::create_group(
                 &self.db,
                 run.id,
-                "broken-files".to_string(),
+                "skipped-files".to_string(),
                 "".to_string(),
                 "none".to_string(),
             )
@@ -478,6 +502,17 @@ impl Pipeline {
                     "broken_file_skipped".to_string(),
                     1,
                     Some(format!("broken file skipped: {}", broken_path)),
+                )
+                .await?;
+            }
+
+            for zero_byte_msg in &zero_byte_warnings {
+                WarningsRepo::add(
+                    &self.db,
+                    group_model.id,
+                    "zero_byte_file_skipped".to_string(),
+                    1,
+                    Some(zero_byte_msg.clone()),
                 )
                 .await?;
             }
@@ -559,21 +594,56 @@ impl Pipeline {
     }
 }
 
-async fn scan_vfs(vfs: &Vfs, root: &Path) -> anyhow::Result<Vec<VfsFile>> {
+async fn inherit_file_times(
+    src_vfs: &Vfs,
+    group_files: &[crate::core::grouping::VideoItem],
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    let last_file = group_files.last().ok_or_else(|| anyhow::anyhow!("no files in group"))?;
+
+    // Try to get real filesystem times if source is local
+    if let Some(real_src) = src_vfs.resolve_real_path(last_file.path.as_path()).await {
+        let metadata = tokio::fs::metadata(&real_src).await?;
+        let modified = metadata.modified()?;
+        let accessed = metadata.accessed().unwrap_or(modified);
+
+        let accessed_ft = filetime::FileTime::from_system_time(accessed);
+        let modified_ft = filetime::FileTime::from_system_time(modified);
+        filetime::set_file_times(output_path, accessed_ft, modified_ft)?;
+    } else {
+        // Fall back to VFS stat (only has modified)
+        let info = src_vfs.stat(last_file.path.as_path()).await?;
+        if let Some(modified_dt) = info.modified {
+            let modified = std::time::SystemTime::from(modified_dt);
+
+            let modified_ft = filetime::FileTime::from_system_time(modified);
+            filetime::set_file_times(output_path, modified_ft, modified_ft)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn scan_vfs(vfs: &Vfs, root: &Path) -> anyhow::Result<(Vec<VfsFile>, Vec<String>)> {
     let mut files = Vec::new();
+    let mut zero_byte_paths = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for info in vfs.list(&dir).await? {
             let path = PathBuf::from(&info.path);
             if info.is_dir {
                 stack.push(path);
-            } else if info.size > 0 {
+            } else if info.size == 0 {
+                let warning_msg = format!("zero-byte file skipped: {}", path.display());
+                tracing::warn!("{}", warning_msg);
+                zero_byte_paths.push(warning_msg);
+            } else {
                 files.push(VfsFile { info, path });
             }
         }
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(files)
+    Ok((files, zero_byte_paths))
 }
 
 async fn copy_non_video_vfs(
