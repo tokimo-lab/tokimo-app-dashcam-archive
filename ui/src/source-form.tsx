@@ -64,7 +64,7 @@ function sourceBinding(
     sourceId,
     sourceType,
     sourceName: sourceName || sourceType,
-    sourceConfig: null,
+    displayHints: undefined,
     path,
   };
 }

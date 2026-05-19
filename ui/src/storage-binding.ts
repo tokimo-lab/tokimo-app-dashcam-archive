@@ -5,7 +5,7 @@ export interface StorageBinding {
   sourceId: string;
   sourceType: string;
   sourceName: string;
-  sourceConfig: unknown;
+  displayHints?: { protocolPrefix?: string; rootPath?: string };
   path: string;
 }
 
