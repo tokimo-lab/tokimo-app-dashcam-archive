@@ -26,7 +26,7 @@ notify             = "8"
 notify-debouncer-mini = "0.7"
 regex              = "1"
 rust-embed         = { version = "8", features = ["debug-embed"] }
-sea-orm            = { version = "2.0.0-rc.37", default-features = false, features = ["sqlx-postgres", "runtime-tokio-rustls", "with-uuid", "with-chrono", "with-json", "macros"] }
+sea-orm            = { version = "2.0.0-rc.38", default-features = false, features = ["sqlx-postgres", "runtime-tokio-rustls", "with-uuid", "with-chrono", "with-json", "macros"] }
 serde              = { version = "1", features = ["derive"] }
 serde_json         = "1"
 tokio              = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "process", "io-util", "sync", "fs"] }
