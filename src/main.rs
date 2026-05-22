@@ -61,7 +61,6 @@ async fn run_server() -> anyhow::Result<()> {
     info!(endpoint = ?cfg.endpoint, "dashcam-archive: connecting to broker");
 
     let db = db::init_pool().await?;
-    db::init_schema(&db).await?;
     let client_slot = Arc::new(OnceLock::new());
     let ffmpeg_paths = Arc::new(tokio::sync::RwLock::new(FfmpegPaths::from_env()));
     let workers = std::env::var("DASHCAM_ARCHIVE_PARALLEL_SOURCES")
@@ -146,6 +145,7 @@ async fn probe_ffmpeg_paths(client: &BusClient, paths: &tokio::sync::RwLock<Ffmp
         user_id: None,
         request_id: uuid::Uuid::new_v4().to_string(),
         workspace: None,
+        caller_app_id: None,
     };
     let payload = serde_json::to_vec(&serde_json::json!({}));
     let Ok(payload) = payload else {

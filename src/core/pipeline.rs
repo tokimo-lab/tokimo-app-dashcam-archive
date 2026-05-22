@@ -198,6 +198,7 @@ impl Pipeline {
             user_id: Some(self.user_id.to_string()),
             request_id: uuid::Uuid::new_v4().to_string(),
             workspace: None,
+            caller_app_id: None,
         };
         match serde_json::to_vec(&payload) {
             Ok(bytes) => {

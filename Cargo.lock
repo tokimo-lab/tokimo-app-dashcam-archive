@@ -1925,7 +1925,7 @@ dependencies = [
 [[package]]
 name = "tokimo-bus-cli"
 version = "0.1.0"
-source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=b68aa99c846fbe9e201df5b6a7ea91d84b642340#b68aa99c846fbe9e201df5b6a7ea91d84b642340"
+source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=5a605f4c7d6953349f719f3c9963fd34d72b834d#5a605f4c7d6953349f719f3c9963fd34d72b834d"
 dependencies = [
  "anyhow",
  "clap",
@@ -1934,7 +1934,7 @@ dependencies = [
 [[package]]
 name = "tokimo-bus-client"
 version = "0.1.0"
-source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=b68aa99c846fbe9e201df5b6a7ea91d84b642340#b68aa99c846fbe9e201df5b6a7ea91d84b642340"
+source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=5a605f4c7d6953349f719f3c9963fd34d72b834d#5a605f4c7d6953349f719f3c9963fd34d72b834d"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1951,7 +1951,7 @@ dependencies = [
 [[package]]
 name = "tokimo-bus-protocol"
 version = "0.1.0"
-source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=b68aa99c846fbe9e201df5b6a7ea91d84b642340#b68aa99c846fbe9e201df5b6a7ea91d84b642340"
+source = "git+https://github.com/tokimo-lab/tokimo-bus.git?rev=5a605f4c7d6953349f719f3c9963fd34d72b834d#5a605f4c7d6953349f719f3c9963fd34d72b834d"
 dependencies = [
  "axum",
  "rmp-serde",

@@ -8,10 +8,10 @@ description = "Dashcam archive Tokimo app scaffold."
 repository  = "https://github.com/tokimo-lab/tokimo-app-dashcam-archive"
 
 [dependencies]
-tokimo-bus-client   = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340" }
-tokimo-bus-protocol = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340", features = ["axum"] }
-tokimo-bus-auth     = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340", features = ["axum"] }
-tokimo-bus-cli      = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "b68aa99c846fbe9e201df5b6a7ea91d84b642340" }
+tokimo-bus-client   = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "5a605f4c7d6953349f719f3c9963fd34d72b834d" }
+tokimo-bus-protocol = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "5a605f4c7d6953349f719f3c9963fd34d72b834d", features = ["axum"] }
+tokimo-bus-auth     = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "5a605f4c7d6953349f719f3c9963fd34d72b834d", features = ["axum"] }
+tokimo-bus-cli      = { git = "https://github.com/tokimo-lab/tokimo-bus.git", rev = "5a605f4c7d6953349f719f3c9963fd34d72b834d" }
 
 anyhow             = "1"
 async-stream       = "0.3"
@@ -33,6 +33,7 @@ tokio              = { version = "1", features = ["rt-multi-thread", "macros", "
 tokio-stream       = { version = "0.1", features = ["sync"] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+urlencoding        = "2"
 uuid               = { version = "1", features = ["v4", "serde"] }
 tokimo-vfs = { path = "../../packages/tokimo-package-vfs/packages/fs" }
 tokimo-package-ffmpeg = { path = "../../packages/tokimo-package-ffmpeg" }

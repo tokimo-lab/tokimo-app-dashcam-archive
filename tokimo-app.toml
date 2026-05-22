@@ -10,6 +10,11 @@ lifecycle    = "resident"
 binary       = "tokimo-app-dashcam-archive"
 ui_dist      = "ui/dist"
 
+[database]
+schema         = "dashcam_archive"
+migrations_dir = "migrations"
+driver         = "postgres"
+
 [ui]
 entry        = "assets/index.js"
 window_type  = "dashcam-archive"

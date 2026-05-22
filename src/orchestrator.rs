@@ -139,6 +139,7 @@ impl Orchestrator {
                     user_id: Some(user_id.to_string()),
                     request_id: uuid::Uuid::new_v4().to_string(),
                     workspace: None,
+                    caller_app_id: None,
                 };
                 let error_msg = if status == "failed" {
                     Some(error_text.clone())
