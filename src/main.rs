@@ -1,5 +1,8 @@
 //! dashcam-archive app — embedded axum + UDS Tokimo app.
 
+/// Compile-time embedded app manifest, used by the db module to read the schema name.
+const MANIFEST: &str = include_str!("../tokimo-app.toml");
+
 mod app_server;
 mod assets;
 mod cli;
