@@ -115,7 +115,9 @@ export function DirPicker({
         <div className="min-w-0 flex-1">
           <Select
             value={value?.sourceId}
-            onChange={(v) => updateSource(typeof v === "string" ? v : undefined)}
+            onChange={(v) =>
+              updateSource(typeof v === "string" ? v : undefined)
+            }
             options={sourceOptions}
             placeholder={t("storageBindingPlaceholder")}
             allowClear
@@ -143,9 +145,7 @@ export function DirPicker({
         browseLabel={t("btnBrowse")}
       />
 
-      {loadError && (
-        <p className="text-fg-danger text-xs">{loadError}</p>
-      )}
+      {loadError && <p className="text-fg-danger text-xs">{loadError}</p>}
       {!value && legacyPath && (
         <p className="text-fg-muted text-xs">
           <span className="bg-amber-500/10 text-amber-600 dark:text-amber-300 mr-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium">
