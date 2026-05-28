@@ -1254,6 +1254,7 @@ fn x265_crf_from_encoder_params(params: &serde_json::Value) -> u8 {
         .unwrap_or(X265_DEFAULT_CRF)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_with_encoder(
     runner: &FfmpegRunner,
     source: &sources::Model,

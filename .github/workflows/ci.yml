@@ -76,6 +76,13 @@ jobs:
           echo "DYLD_LIBRARY_PATH=${{ github.workspace }}/bin/tokimo-lib/current/lib:${DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=${{ github.workspace }}/bin/tokimo-lib/current/lib:${LIBRARY_PATH}" >> "$GITHUB_ENV"
 
+      - name: Install missing dylibs (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install jpeg-xl webp
+          BREW_PREFIX="$(brew --prefix)"
+          echo "DYLD_LIBRARY_PATH=${BREW_PREFIX}/lib:${DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
