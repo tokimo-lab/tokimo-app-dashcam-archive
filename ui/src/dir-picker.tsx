@@ -1,7 +1,38 @@
+/**
+ * DirPicker — choose a (sourceId, path) pair representing a directory in a
+ * registered host VFS source. Re-implementation built on top of
+ * `@tokimo/ui` PathSelector + Select, replacing the previous version that
+ * depended on the host's now-removed `shell.pickStorageBinding` modal.
+ *
+ * Layout:
+ *
+ *   [ Source ▼ ]     ← Select listing all VFS sources
+ *   [ /path  📁 ❌ ]  ← PathSelector w/ browse adapter + a clear button
+ *
+ * The legacy free-form `legacyPath` (pre-StorageBinding DB rows) is rendered
+ * as a hint below the row when there is no current binding.
+ */
+
 import type { ShellApi } from "@tokimo/sdk";
-import { Button, CloseOutlined, FolderOpenOutlined } from "@tokimo/ui";
+import {
+  Button,
+  CloseOutlined,
+  PathSelector,
+  Select,
+  type SelectOption,
+} from "@tokimo/ui";
+import { useEffect, useState } from "react";
+import { listVfsSources, type VfsDto } from "./api";
+import { useVfsBrowse } from "./hooks/useVfsBrowse";
 import type { StorageBinding } from "./storage-binding";
-import { hasStorageBindingPicker } from "./storage-binding";
+
+function protocolPrefixFor(source: VfsDto | undefined): string | undefined {
+  if (!source) return undefined;
+  // SMB / NFS-style remote sources benefit from a protocol breadcrumb in
+  // the file browser. Local sources don't need one.
+  if (source.type === "local") return undefined;
+  return `${source.type}://${source.name}`;
+}
 
 export interface DirPickerProps {
   value: StorageBinding | null;
@@ -18,63 +49,108 @@ export function DirPicker({
   t,
   legacyPath,
 }: DirPickerProps) {
-  const handleBrowse = async () => {
-    if (!hasStorageBindingPicker(shell)) {
-      throw new Error("Storage binding picker is not available");
+  const [sources, setSources] = useState<VfsDto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listVfsSources()
+      .then((list) => {
+        if (cancelled) return;
+        setSources(list);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLoadError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onBrowse = useVfsBrowse(shell);
+
+  const selected = sources.find((s) => s.id === value?.sourceId);
+  const sourceOptions: SelectOption[] = sources.map((s) => ({
+    label: `${s.name} (${s.type})`,
+    value: s.id,
+    description: s.type,
+  }));
+
+  const updateSource = (sourceId: string | undefined) => {
+    if (!sourceId) {
+      onChange(null);
+      return;
     }
-    const result = await shell.pickStorageBinding({
-      initial: value
-        ? { sourceId: value.sourceId, path: value.path }
-        : undefined,
-      title: t("storageBindingPickerTitle"),
+    const src = sources.find((s) => s.id === sourceId);
+    if (!src) return;
+    onChange({
+      sourceId: src.id,
+      sourceType: src.type,
+      sourceName: src.name,
+      displayHints: undefined,
+      path: value?.sourceId === src.id ? value.path : "",
     });
-    if (result !== null) onChange(result);
   };
 
-  const hasLegacyPath = !value && Boolean(legacyPath);
+  const updatePath = (path: string) => {
+    if (!value) return;
+    onChange({ ...value, path });
+  };
+
+  const protocolPrefix = protocolPrefixFor(selected);
 
   return (
-    <div className="flex gap-2">
-      <button
-        type="button"
-        onClick={handleBrowse}
-        className="border-border-base bg-surface-elevated hover:bg-surface-glass min-w-0 flex-1 cursor-pointer rounded-md border px-3 py-1.5 text-left text-sm transition-colors"
-      >
-        {value ? (
-          <span className="flex min-w-0 items-center gap-2">
-            {value.sourceType !== "local" && (
-              <span className="bg-blue-50 text-blue-600 dark:bg-sky-500/[0.12] dark:text-sky-300 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase">
-                {value.sourceType || t("remoteStorageSource")}
-              </span>
-            )}
-            <span className="min-w-0 truncate">
-              {value.sourceName} :: {value.path}
-            </span>
-          </span>
-        ) : hasLegacyPath ? (
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-300 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium">
-              {t("legacyStorageBinding")}
-            </span>
-            <span className="min-w-0 truncate">{legacyPath}</span>
-          </span>
-        ) : (
-          <span className="text-fg-muted">
-            {t("storageBindingPlaceholder")}
-          </span>
-        )}
-      </button>
-      <Button
-        icon={<FolderOpenOutlined />}
-        onClick={handleBrowse}
-        aria-label={t("btnBrowse")}
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1">
+          <Select
+            value={value?.sourceId}
+            onChange={(v) => updateSource(typeof v === "string" ? v : undefined)}
+            options={sourceOptions}
+            placeholder={t("storageBindingPlaceholder")}
+            allowClear
+            loading={loading}
+            disabled={Boolean(loadError)}
+          />
+        </div>
+        <Button
+          icon={<CloseOutlined />}
+          onClick={() => onChange(null)}
+          aria-label={t("btnClear")}
+          disabled={!value}
+        />
+      </div>
+
+      <PathSelector
+        value={value?.path ?? ""}
+        onChange={updatePath}
+        onBrowse={value ? onBrowse : undefined}
+        sourceId={
+          value && value.sourceType !== "local" ? value.sourceId : undefined
+        }
+        protocolPrefix={protocolPrefix}
+        disabled={!value}
+        browseLabel={t("btnBrowse")}
       />
-      <Button
-        icon={<CloseOutlined />}
-        onClick={() => onChange(null)}
-        aria-label={t("btnClear")}
-        disabled={!value && !hasLegacyPath}
-      />
+
+      {loadError && (
+        <p className="text-fg-danger text-xs">{loadError}</p>
+      )}
+      {!value && legacyPath && (
+        <p className="text-fg-muted text-xs">
+          <span className="bg-amber-500/10 text-amber-600 dark:text-amber-300 mr-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium">
+            {t("legacyStorageBinding")}
+          </span>
+          {legacyPath}
+        </p>
+      )}
     </div>
   );
 }

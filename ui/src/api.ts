@@ -158,6 +158,88 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+// ── VFS (host storage source) API ──────────────────────────────────────────
+//
+// Endpoints live under `/api/vfs` and return the host's standard
+// `{ success, data, error }` envelope, so they need their own fetch helper
+// (separate from dashcam-archive's `fetchJson` which expects raw JSON).
+
+interface VfsEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+async function vfsFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(path, { ...init, credentials: "include" });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  const json = (await r.json()) as VfsEnvelope<T>;
+  if (!json.success) {
+    throw new Error(json.error ?? "VFS request failed");
+  }
+  return json.data as T;
+}
+
+export interface VfsDto {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+export interface BrowseDirectoryResponse {
+  currentPath: string;
+  parentPath: string | null;
+  entries: BrowseEntry[];
+}
+
+export interface SourceStatEntry {
+  path: string;
+  size: number | null;
+  modifiedAt: string | null;
+  mode: string | null;
+}
+
+export async function listVfsSources(): Promise<VfsDto[]> {
+  return vfsFetch<VfsDto[]>("/api/vfs");
+}
+
+export async function browseVfs(
+  fileSystemId: string | undefined,
+  path: string,
+): Promise<BrowseDirectoryResponse> {
+  return fileSystemId
+    ? vfsFetch<BrowseDirectoryResponse>(
+        `/api/vfs/${encodeURIComponent(fileSystemId)}/browse?path=${encodeURIComponent(path)}`,
+      )
+    : vfsFetch<BrowseDirectoryResponse>(
+        `/api/vfs/local/browse?path=${encodeURIComponent(path)}`,
+      );
+}
+
+export async function statVfs(
+  paths: string[],
+  fileSystemId: string | undefined,
+): Promise<SourceStatEntry[]> {
+  const body = JSON.stringify({ paths });
+  const headers = { "Content-Type": "application/json" };
+  return fileSystemId
+    ? vfsFetch<SourceStatEntry[]>(
+        `/api/vfs/${encodeURIComponent(fileSystemId)}/stat`,
+        { method: "POST", headers, body },
+      )
+    : vfsFetch<SourceStatEntry[]>("/api/vfs/local/stat", {
+        method: "POST",
+        headers,
+        body,
+      });
+}
+
 // ── API functions ──────────────────────────────────────────────────────────
 
 export async function getEncoders(): Promise<EncoderDto[]> {
