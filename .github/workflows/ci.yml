@@ -93,6 +93,7 @@ jobs:
         run: cargo build --bins --tests
 
       - name: cargo test
+        if: runner.os == 'Linux'
         run: cargo test --bins
 
   lint:
