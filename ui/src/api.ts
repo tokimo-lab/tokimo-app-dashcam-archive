@@ -184,6 +184,7 @@ export interface VfsDto {
   id: string;
   name: string;
   type: string;
+  displayHints?: { protocolPrefix?: string; rootPath?: string };
 }
 
 export interface BrowseEntry {

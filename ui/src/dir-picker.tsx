@@ -28,6 +28,9 @@ import type { StorageBinding } from "./storage-binding";
 
 function protocolPrefixFor(source: VfsDto | undefined): string | undefined {
   if (!source) return undefined;
+  // Prefer host-computed prefix (safe, includes share/export path).
+  const fromHints = source.displayHints?.protocolPrefix?.trim();
+  if (fromHints) return fromHints;
   // SMB / NFS-style remote sources benefit from a protocol breadcrumb in
   // the file browser. Local sources don't need one.
   if (source.type === "local") return undefined;
