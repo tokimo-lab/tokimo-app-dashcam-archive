@@ -94,7 +94,7 @@ impl SourcesRepo {
         user_id: Uuid,
         input: SourceInput,
     ) -> anyhow::Result<Option<sources::Model>> {
-        let mut results = Sources::update_many()
+        let results = Sources::update_many()
             .filter(sources::Column::Id.eq(id))
             .filter(sources::Column::UserId.eq(user_id))
             .col_expr(sources::Column::Name, Expr::value(input.name))

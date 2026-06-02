@@ -100,7 +100,7 @@ impl MergeRunsRepo {
                 Expr::value(Some(Utc::now().fixed_offset())),
             );
         }
-        let mut results = stmt.exec_with_returning(db).await?;
+        let results = stmt.exec_with_returning(db).await?;
         Ok(results.into_iter().next())
     }
 
@@ -122,7 +122,7 @@ impl MergeRunsRepo {
         if let Some(summary) = log_summary {
             stmt = stmt.col_expr(merge_runs::Column::LogSummary, Expr::value(Some(summary)));
         }
-        let mut results = stmt.exec_with_returning(db).await?;
+        let results = stmt.exec_with_returning(db).await?;
         Ok(results.into_iter().next())
     }
 
