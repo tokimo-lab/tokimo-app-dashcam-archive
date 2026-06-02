@@ -1,7 +1,7 @@
 use chrono::{DateTime, FixedOffset, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    sea_query::Expr,
 };
 use uuid::Uuid;
 
@@ -91,15 +91,17 @@ impl MergeRunsRepo {
         id: Uuid,
         status: &str,
     ) -> anyhow::Result<Option<merge_runs::Model>> {
-        let Some(existing) = Self::get_run(db, id).await? else {
-            return Ok(None);
-        };
-        let mut active: merge_runs::ActiveModel = existing.into();
-        active.status = Set(status.to_string());
+        let mut stmt = merge_runs::Entity::update_many()
+            .filter(merge_runs::Column::Id.eq(id))
+            .col_expr(merge_runs::Column::Status, Expr::value(status.to_string()));
         if matches!(status, "succeeded" | "failed" | "cancelled") {
-            active.finished_at = Set(Some(Utc::now().into()));
+            stmt = stmt.col_expr(
+                merge_runs::Column::FinishedAt,
+                Expr::value(Some(Utc::now().fixed_offset())),
+            );
         }
-        Ok(Some(active.update(db).await?))
+        let mut results = stmt.exec_with_returning(db).await?;
+        Ok(results.into_iter().next())
     }
 
     pub async fn set_status_with_summary<C: ConnectionTrait>(
@@ -108,18 +110,20 @@ impl MergeRunsRepo {
         status: &str,
         log_summary: Option<String>,
     ) -> anyhow::Result<Option<merge_runs::Model>> {
-        let Some(existing) = Self::get_run(db, id).await? else {
-            return Ok(None);
-        };
-        let mut active: merge_runs::ActiveModel = existing.into();
-        active.status = Set(status.to_string());
+        let mut stmt = merge_runs::Entity::update_many()
+            .filter(merge_runs::Column::Id.eq(id))
+            .col_expr(merge_runs::Column::Status, Expr::value(status.to_string()));
         if matches!(status, "succeeded" | "failed" | "cancelled") {
-            active.finished_at = Set(Some(Utc::now().into()));
+            stmt = stmt.col_expr(
+                merge_runs::Column::FinishedAt,
+                Expr::value(Some(Utc::now().fixed_offset())),
+            );
         }
         if let Some(summary) = log_summary {
-            active.log_summary = Set(Some(summary));
+            stmt = stmt.col_expr(merge_runs::Column::LogSummary, Expr::value(Some(summary)));
         }
-        Ok(Some(active.update(db).await?))
+        let mut results = stmt.exec_with_returning(db).await?;
+        Ok(results.into_iter().next())
     }
 
     #[allow(clippy::too_many_arguments)]

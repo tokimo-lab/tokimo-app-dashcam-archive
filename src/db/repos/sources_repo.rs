@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, sea_query::Expr};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -94,32 +94,48 @@ impl SourcesRepo {
         user_id: Uuid,
         input: SourceInput,
     ) -> anyhow::Result<Option<sources::Model>> {
-        let Some(existing) = Self::get(db, id, user_id).await? else {
-            return Ok(None);
-        };
-        let mut model: sources::ActiveModel = existing.into();
-        model.name = Set(input.name);
-        model.src_source_id = Set(input.src_source_id);
-        model.src_source_type = Set(input.src_source_type);
-        model.dst_source_id = Set(input.dst_source_id);
-        model.dst_source_type = Set(input.dst_source_type);
-        model.src_path = Set(input.src_path);
-        model.dst_path = Set(input.dst_path);
-        model.encoder = Set(input.encoder);
-        model.encoder_params = Set(input.encoder_params);
-        model.preflight_bitrate_ref = Set(input.preflight_bitrate_ref);
-        model.hybrid_health_check = Set(input.hybrid_health_check);
-        model.max_gap_seconds = Set(input.max_gap_seconds);
-        model.max_group_duration_seconds = Set(input.max_group_duration_seconds);
-        model.monthly_subdirs = Set(input.monthly_subdirs);
-        model.allow_combined_input = Set(input.allow_combined_input);
-        model.no_broken_split = Set(input.no_broken_split);
-        model.trigger_mode = Set(input.trigger_mode);
-        model.cron_expr = Set(input.cron_expr);
-        model.watcher_debounce_secs = Set(input.watcher_debounce_secs);
-        model.enabled = Set(input.enabled);
-        model.updated_at = Set(Utc::now().into());
-        Ok(Some(model.update(db).await?))
+        let mut results = Sources::update_many()
+            .filter(sources::Column::Id.eq(id))
+            .filter(sources::Column::UserId.eq(user_id))
+            .col_expr(sources::Column::Name, Expr::value(input.name))
+            .col_expr(sources::Column::SrcSourceId, Expr::value(input.src_source_id))
+            .col_expr(sources::Column::SrcSourceType, Expr::value(input.src_source_type))
+            .col_expr(sources::Column::DstSourceId, Expr::value(input.dst_source_id))
+            .col_expr(sources::Column::DstSourceType, Expr::value(input.dst_source_type))
+            .col_expr(sources::Column::SrcPath, Expr::value(input.src_path))
+            .col_expr(sources::Column::DstPath, Expr::value(input.dst_path))
+            .col_expr(sources::Column::Encoder, Expr::value(input.encoder))
+            .col_expr(sources::Column::EncoderParams, Expr::value(input.encoder_params))
+            .col_expr(
+                sources::Column::PreflightBitrateRef,
+                Expr::value(input.preflight_bitrate_ref),
+            )
+            .col_expr(
+                sources::Column::HybridHealthCheck,
+                Expr::value(input.hybrid_health_check),
+            )
+            .col_expr(sources::Column::MaxGapSeconds, Expr::value(input.max_gap_seconds))
+            .col_expr(
+                sources::Column::MaxGroupDurationSeconds,
+                Expr::value(input.max_group_duration_seconds),
+            )
+            .col_expr(sources::Column::MonthlySubdirs, Expr::value(input.monthly_subdirs))
+            .col_expr(
+                sources::Column::AllowCombinedInput,
+                Expr::value(input.allow_combined_input),
+            )
+            .col_expr(sources::Column::NoBrokenSplit, Expr::value(input.no_broken_split))
+            .col_expr(sources::Column::TriggerMode, Expr::value(input.trigger_mode))
+            .col_expr(sources::Column::CronExpr, Expr::value(input.cron_expr))
+            .col_expr(
+                sources::Column::WatcherDebounceSecs,
+                Expr::value(input.watcher_debounce_secs),
+            )
+            .col_expr(sources::Column::Enabled, Expr::value(input.enabled))
+            .col_expr(sources::Column::UpdatedAt, Expr::value(Utc::now().fixed_offset()))
+            .exec_with_returning(db)
+            .await?;
+        Ok(results.into_iter().next())
     }
 
     pub async fn delete<C: ConnectionTrait>(db: &C, id: Uuid, user_id: Uuid) -> anyhow::Result<u64> {
