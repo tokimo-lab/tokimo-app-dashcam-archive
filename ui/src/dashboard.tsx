@@ -96,7 +96,7 @@ export function Dashboard({ shell, t, locale }: Props) {
   return (
     <div className="flex h-full flex-col bg-surface-base text-fg-primary">
       {/* Library stats bar */}
-      <div className="border-border-subtle shrink-0 border-b bg-surface-elevated px-6 py-3">
+      <div className="border-border-subtle shrink-0 border-b bg-surface-raised px-6 py-3">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-6">
             <div>
@@ -134,7 +134,7 @@ export function Dashboard({ shell, t, locale }: Props) {
           </div>
         ) : error ? (
           <div className="flex h-full flex-col items-center justify-center gap-2">
-            <p className="text-fg-danger">{t("errorLoad")}</p>
+            <p className="text-state-danger-text">{t("errorLoad")}</p>
             <p className="text-fg-muted text-sm">{error}</p>
           </div>
         ) : sources.length === 0 ? (

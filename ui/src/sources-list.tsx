@@ -104,7 +104,7 @@ export function SourcesList({
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4">
-        <p className="text-fg-danger">{t("errorLoad")}</p>
+        <p className="text-state-danger-text">{t("errorLoad")}</p>
         <p className="text-fg-muted text-sm">{error}</p>
       </div>
     );
@@ -136,7 +136,7 @@ export function SourcesList({
                     ${
                       selected === source.id
                         ? "bg-accent border-accent text-fg-on-accent"
-                        : "bg-surface-elevated border-border-base hover:bg-surface-glass"
+                        : "bg-surface-raised border-border-base hover:bg-surface-overlay"
                     }
                   `}
                 >

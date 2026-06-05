@@ -296,7 +296,7 @@ export function SourceCard({
   return (
     <div
       className={`
-        bg-surface-elevated border-border-base flex flex-col rounded-xl border
+        bg-surface-raised border-border-base flex flex-col rounded-xl border
         shadow-sm transition-shadow hover:shadow-md
         ${!enabled ? "opacity-60" : ""}
       `}
@@ -315,7 +315,7 @@ export function SourceCard({
           <button
             type="button"
             onClick={onSettingsClick}
-            className="text-fg-secondary hover:text-fg-primary cursor-pointer rounded p-1 transition-colors hover:bg-surface-glass"
+            className="text-fg-secondary hover:text-fg-primary cursor-pointer rounded p-1 transition-colors hover:bg-surface-overlay"
             title={t("modalEditSource")}
           >
             <Settings size={16} />

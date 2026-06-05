@@ -136,12 +136,12 @@ export function HistoryPanel({ sourceId, t }: Props) {
         return (
           <div
             key={run.id}
-            className="bg-surface-elevated border-border-base rounded-md border"
+            className="bg-surface-raised border-border-base rounded-md border"
           >
             <button
               type="button"
               onClick={() => toggleExpand(run.id)}
-              className="w-full cursor-pointer p-3 text-left hover:bg-surface-glass"
+              className="w-full cursor-pointer p-3 text-left hover:bg-surface-overlay"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -279,7 +279,7 @@ export function HistoryPanel({ sourceId, t }: Props) {
                                       )}
                                   </div>
                                   {grp.abort_reason && (
-                                    <div className="text-fg-danger mt-1">
+                                    <div className="text-state-danger-text mt-1">
                                       {t("abortLabel")}
                                       {t("separatorLabelValue")}
                                       {grp.abort_reason}

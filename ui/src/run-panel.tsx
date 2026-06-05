@@ -90,7 +90,7 @@ export function RunPanel({ sourceId, t }: Props) {
       </div>
 
       {running && progress && (
-        <div className="bg-surface-elevated border-border-base space-y-3 rounded-md border p-4">
+        <div className="bg-surface-raised border-border-base space-y-3 rounded-md border p-4">
           <div>
             <div className="text-fg-secondary mb-1 text-xs">{t("phase")}</div>
             <div className="text-fg-primary text-sm font-medium">
@@ -125,7 +125,7 @@ export function RunPanel({ sourceId, t }: Props) {
           <div className="flex justify-between gap-4">
             <div>
               <div className="text-fg-secondary text-xs">{t("okCount")}</div>
-              <div className="text-fg-success text-lg font-semibold">
+              <div className="text-state-success-text text-lg font-semibold">
                 {progress.ok_count}
               </div>
             </div>
@@ -133,7 +133,7 @@ export function RunPanel({ sourceId, t }: Props) {
               <div className="text-fg-secondary text-xs">
                 {t("failedCount")}
               </div>
-              <div className="text-fg-danger text-lg font-semibold">
+              <div className="text-state-danger-text text-lg font-semibold">
                 {progress.failed_count}
               </div>
             </div>

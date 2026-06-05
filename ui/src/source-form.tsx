@@ -288,7 +288,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                 placeholder={t("placeholderName")}
               />
               {errors.name && (
-                <p className="text-fg-danger mt-1 text-xs">{errors.name}</p>
+                <p className="text-state-danger-text mt-1 text-xs">{errors.name}</p>
               )}
             </div>
           </SettingRow>
@@ -317,7 +317,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                 />
               </div>
               {errors.src && (
-                <p className="text-fg-danger mt-1 text-xs">{errors.src}</p>
+                <p className="text-state-danger-text mt-1 text-xs">{errors.src}</p>
               )}
             </div>
           </SettingRow>
@@ -346,7 +346,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                 />
               </div>
               {errors.dst && (
-                <p className="text-fg-danger mt-1 text-xs">{errors.dst}</p>
+                <p className="text-state-danger-text mt-1 text-xs">{errors.dst}</p>
               )}
             </div>
           </SettingRow>
@@ -422,7 +422,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                     {enc.description} •{" "}
                     <span
                       className={
-                        enc.available ? "text-fg-success" : "text-fg-danger"
+                        enc.available ? "text-state-success-text" : "text-state-danger-text"
                       }
                     >
                       {t(enc.available ? "available" : "unavailable")}
@@ -438,7 +438,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
               value={paramsJson}
               onChange={(e) => setParamsJson(e.target.value)}
               rows={8}
-              className="bg-surface-elevated border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
+              className="bg-surface-raised border-border-base text-fg-primary w-full rounded border p-2 font-mono text-xs"
             />
           </SettingRow>
           <SettingRow
@@ -499,7 +499,7 @@ export function SourceForm({ source, onSaved, onDeleted, shell, t }: Props) {
                   placeholder={t("placeholderCronExpr")}
                 />
                 {errors.cron_expr && (
-                  <p className="text-fg-danger mt-1 text-xs">
+                  <p className="text-state-danger-text mt-1 text-xs">
                     {errors.cron_expr}
                   </p>
                 )}

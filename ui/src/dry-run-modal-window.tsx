@@ -123,8 +123,8 @@ export default function DryRunModalWindow({ win }: { win: ShellWindowHandle }) {
             <span className="text-sm">正在分析...</span>
           </div>
         ) : error ? (
-          <div className="border-border-subtle bg-surface-elevated rounded-md border p-4">
-            <div className="text-fg-danger text-sm font-medium">
+          <div className="border-border-subtle bg-surface-raised rounded-md border p-4">
+            <div className="text-state-danger-text text-sm font-medium">
               模拟运行失败
             </div>
             <div className="text-fg-muted mt-2 whitespace-pre-wrap text-sm">
