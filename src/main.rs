@@ -29,8 +29,8 @@ use crate::{
 #[derive(Parser, Debug)]
 #[command(
     name = "tokimo-app-dashcam-archive",
-    about = "录像归并 — Tokimo 子 app CLI",
-    long_about = "录像归并 CLI — 行车记录仪 / 监控视频按时间分组合并与转码。",
+    about = "Dashcam Archive — Tokimo app CLI",
+    long_about = "Dashcam Archive CLI — group, merge, and transcode dashcam / surveillance videos by time.",
     term_width = 100
 )]
 pub(crate) struct Cli {
