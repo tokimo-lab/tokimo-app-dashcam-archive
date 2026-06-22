@@ -231,7 +231,7 @@ impl Pipeline {
         )
         .await;
         let state_dir = std::env::var("TOKIMO_DATA_DIR")
-            .or_else(|_| std::env::var("DATA_LOCAL_PATH"))
+            .or_else(|_| std::env::var("TOKIMO_DATA_LOCAL_PATH"))
             .unwrap_or_else(|_| "./.data".to_string());
         let staging = PathBuf::from(state_dir)
             .join("dashcam-archive")
