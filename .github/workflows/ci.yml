@@ -90,11 +90,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: cargo build
-        run: cargo build --bins --tests
+        run: cargo build --locked --bins --tests
 
       - name: cargo test
         if: runner.os == 'Linux'
-        run: cargo test --bins
+        run: cargo test --locked --bins
 
   lint:
     name: fmt & clippy
@@ -146,4 +146,4 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --bins --tests -- -D warnings
+        run: cargo clippy --locked --bins --tests -- -D warnings
