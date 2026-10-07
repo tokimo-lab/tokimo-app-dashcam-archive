@@ -42,6 +42,11 @@ export default defineApp({
     category: "app",
   },
   translations: { "zh-CN": zhCN, "en-US": enUS },
+  standalone: {
+    createWindow: (route) => ({ type: "dashcam-archive", route }),
+    getRoute: (window) =>
+      window.type === "dashcam-archive" ? (window.route ?? "/") : null,
+  },
   mount(container: HTMLElement, ctx: AppRuntimeCtx): Dispose {
     const root: Root = createRoot(container);
     root.render(
