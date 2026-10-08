@@ -94,7 +94,7 @@ export function Dashboard({ shell, t, locale }: Props) {
   const enabledCount = sources.filter((s) => s.enabled).length;
 
   return (
-    <div className="flex h-full flex-col bg-surface-base text-fg-primary">
+    <div className="app-safe-area flex h-full flex-col bg-surface-base text-fg-primary">
       {/* Library stats bar */}
       <div className="border-border-subtle shrink-0 border-b bg-surface-raised px-6 py-3">
         <div className="flex items-center justify-between gap-4">
