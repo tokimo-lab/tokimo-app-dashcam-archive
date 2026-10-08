@@ -2,6 +2,7 @@
  * Main dashboard: library stats bar + responsive source card grid.
  */
 import type { ShellApi } from "@tokimo/sdk";
+import { useStandaloneDocumentScroll } from "@tokimo/sdk";
 import { Button, Empty, Spin } from "@tokimo/ui";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function Dashboard({ shell, t, locale }: Props) {
+  const documentScroll = useStandaloneDocumentScroll();
   const [sources, setSources] = useState<SourceDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +96,9 @@ export function Dashboard({ shell, t, locale }: Props) {
   const enabledCount = sources.filter((s) => s.enabled).length;
 
   return (
-    <div className="app-safe-area flex h-full flex-col bg-surface-base text-fg-primary">
+    <div
+      className={`app-safe-area flex flex-col bg-surface-base text-fg-primary ${documentScroll ? "min-h-dvh" : "h-full"}`}
+    >
       {/* Library stats bar */}
       <div className="border-border-subtle shrink-0 border-b bg-surface-raised px-6 py-3">
         <div className="flex items-center justify-between gap-4">
@@ -127,7 +131,9 @@ export function Dashboard({ shell, t, locale }: Props) {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div
+        className={`flex-1 p-6 ${documentScroll ? "overflow-visible" : "overflow-y-auto"}`}
+      >
         {loading ? (
           <div className="flex h-full items-center justify-center">
             <Spin />

@@ -2,9 +2,11 @@
  * Dashcam Archive standalone app entry point.
  */
 import type { AppRuntimeCtx, Dispose } from "@tokimo/sdk";
-import { defineApp, makeTranslator } from "@tokimo/sdk";
+import { defineApp, makeTranslator, RuntimeProvider } from "@tokimo/sdk";
 import {
   ConfigProvider,
+  cssVar,
+  TOKEN,
   ToastProvider,
   enUS as uiEnUS,
   zhCN as uiZhCN,
@@ -43,6 +45,8 @@ export default defineApp({
   },
   translations: { "zh-CN": zhCN, "en-US": enUS },
   standalone: {
+    layout: "document",
+    background: cssVar(TOKEN.surfaceBase),
     createWindow: (route) => ({ type: "dashcam-archive", route }),
     getRoute: (window) =>
       window.type === "dashcam-archive" ? (window.route ?? "/") : null,
@@ -51,7 +55,9 @@ export default defineApp({
     const root: Root = createRoot(container);
     root.render(
       <StrictMode>
-        <DashcamArchiveApp ctx={ctx} />
+        <RuntimeProvider value={ctx}>
+          <DashcamArchiveApp ctx={ctx} />
+        </RuntimeProvider>
       </StrictMode>,
     );
     return () => root.unmount();
